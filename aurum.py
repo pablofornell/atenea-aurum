@@ -5,12 +5,15 @@ Initializes MT4 connection, Claude bridge, storage, and runs the trading agent.
 """
 import logging
 import sys
+import uuid
 from pathlib import Path
 
 from src.mt4.bridge import MT4Bridge, MT4BridgeError
 from src.bridge.claude_bridge import call_claude
 from src.db.storage import SessionStorage
 from src.agent.agent import AurumAgent
+from src.agent.feedback_logger import FeedbackLogger
+from src.agent.session_reporter import generate_report
 
 # Configure logging
 logging.basicConfig(
@@ -55,11 +58,17 @@ def main():
         logger.error(f"Cannot initialize database: {e}")
         return 1
 
+    # Initialize feedback logger
+    run_id = str(uuid.uuid4())
+    flog = FeedbackLogger(run_id=run_id)
+    logger.info(f"Run ID: {run_id}")
+
     # Create and run agent
     try:
         agent = AurumAgent(
             mt4_bridge=mt4,
             storage=storage,
+            feedback_logger=flog,
             cycle_interval=900  # 15 minutes
         )
         logger.info("Agent initialized, starting main loop...")
@@ -71,7 +80,6 @@ def main():
         logger.error(f"Agent error: {e}", exc_info=True)
         return 1
     finally:
-        # Cleanup
         logger.info("Cleaning up...")
         try:
             mt4.close_connection()
@@ -81,6 +89,16 @@ def main():
             storage.close()
         except Exception:
             pass
+
+        # Generate session report
+        try:
+            logger.info("Generating session report...")
+            generate_report(run_id, save=True)
+            logger.info(f"Review with: python src/tools/review_session.py {run_id[:8]}")
+            logger.info(f"Full prompt:  python src/tools/review_session.py {run_id[:8]} --prompt")
+        except Exception as e:
+            logger.warning(f"Could not generate session report: {e}")
+
         logger.info("AURUM Trading System Stopped")
 
     return 0

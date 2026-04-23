@@ -58,7 +58,7 @@ def call_claude(
             text=True,
             encoding='utf-8',
             cwd=str(REPO_DIR),
-            timeout=60,  # 60 second timeout
+            timeout=120,  # 120 second timeout
         )
 
         if result.returncode != 0:

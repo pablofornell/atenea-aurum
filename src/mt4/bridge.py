@@ -233,6 +233,16 @@ class MT4Bridge:
             "spread": float(parts[2]),
         }
 
+    def get_stop_level(self, symbol: str = "XAUUSD") -> float:
+        """Get the broker's minimum stop distance in points for a symbol.
+
+        Returns:
+            Minimum distance in price units between order price and SL/TP.
+        """
+        response = self._send_cmd(f"GET_STOPLEVEL|{symbol}")
+        result = self._parse_response(response)
+        return float(result["data"])
+
     def get_server_time(self) -> str:
         """Get current MT4 server time.
 
@@ -244,8 +254,39 @@ class MT4Bridge:
         return result["data"]
 
     def close_connection(self):
-        """Cleanup (no-op for file-based bridge)."""
+        """Close the TCP socket and release resources."""
+        if self.file_obj:
+            try:
+                self.file_obj.close()
+            except Exception:
+                pass
+            self.file_obj = None
+        if self.sock:
+            try:
+                self.sock.close()
+            except Exception:
+                pass
+            self.sock = None
         logger.info("MT4 bridge closed")
+
+    def reconnect(self, max_attempts: int = 5, delay: float = 2.0) -> bool:
+        """Close and re-establish the connection. Required after CHANGE_TIMEFRAME
+        because the MT4 EA restarts when the chart period changes.
+
+        Returns True if reconnected successfully, False if all attempts fail.
+        """
+        self.close_connection()
+        for attempt in range(1, max_attempts + 1):
+            try:
+                self.connect()
+                logger.info(f"Reconnected to MT4 (attempt {attempt})")
+                return True
+            except MT4ConnectionError as e:
+                logger.warning(f"Reconnect attempt {attempt}/{max_attempts} failed: {e}")
+                if attempt < max_attempts:
+                    time.sleep(delay)
+        logger.error("Could not reconnect to MT4 after all attempts")
+        return False
 
     def __enter__(self):
         """Context manager support."""

@@ -1,9 +1,7 @@
 """Aurum trading agent — orchestrates analysis and order execution."""
-import json
 import time
 import logging
 import uuid
-from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
 from src.mt4.bridge import MT4Bridge, MT4BridgeError
@@ -11,53 +9,68 @@ from src.mt4.screenshot import capture_mt4, ScreenshotError
 from src.bridge.claude_bridge import call_claude
 from src.db.storage import SessionStorage
 from src.agent.prompts import SYSTEM_PROMPT
+from src.agent.feedback_logger import FeedbackLogger
 
 logger = logging.getLogger(__name__)
 
 
 class AurumAgent:
-    """Autonomous trading agent for XAUUSD on MT4.
-
-    Orchestrates screenshot capture, Claude analysis, order execution, and 15-minute cycles.
-    """
+    """Autonomous trading agent for XAUUSD on MT4."""
 
     def __init__(
         self,
         mt4_bridge: MT4Bridge,
         storage: SessionStorage,
-        cycle_interval: int = 900,  # 15 minutes in seconds
+        feedback_logger: Optional[FeedbackLogger] = None,
+        cycle_interval: int = 900,
     ):
-        """Initialize Aurum agent.
-
-        Args:
-            mt4_bridge: Connected MT4Bridge instance
-            storage: SessionStorage instance for persistence
-            cycle_interval: Seconds between major analysis cycles (default: 900 = 15 min)
-        """
         self.mt4_bridge = mt4_bridge
         self.storage = storage
+        self.flog = feedback_logger
         self.cycle_interval = cycle_interval
         self.running = False
+
+    # ------------------------------------------------------------------
+    # Main loop
+    # ------------------------------------------------------------------
 
     def run(self):
         """Main loop: run analysis cycles indefinitely."""
         self.running = True
         logger.info("Aurum agent starting main loop")
 
+        if self.flog:
+            self.flog.run_start(cycle_interval=self.cycle_interval)
+
+        total_cycles = 0
+        total_errors = 0
+        start_account = self._safe_account()
+
         try:
             while self.running:
                 session_id = str(uuid.uuid4())
                 logger.info(f"Starting new cycle: {session_id}")
+                total_cycles += 1
+
+                if self.flog:
+                    self.flog.cycle_start(session_id)
 
                 cycle_start = time.time()
+                cycle_errors_before = total_errors
                 try:
                     self.run_cycle(session_id)
                 except Exception as e:
                     logger.error(f"Cycle error: {e}", exc_info=True)
+                    total_errors += 1
+                    if self.flog:
+                        self.flog.error("cycle_exception", str(e), session_id=session_id)
 
-                # Wait until next cycle
-                elapsed = time.time() - cycle_start
-                remaining = self.cycle_interval - elapsed
+                cycle_dur = time.time() - cycle_start
+                if self.flog:
+                    self.flog.cycle_end(session_id, cycle_dur, final_action="—")
+
+                interval = self._current_interval()
+                remaining = interval - cycle_dur
                 if remaining > 0:
                     logger.info(f"Sleeping for {remaining:.1f}s until next cycle")
                     time.sleep(remaining)
@@ -66,43 +79,84 @@ class AurumAgent:
             logger.info("Agent stopped by user (Ctrl+C)")
         finally:
             self.running = False
+            if self.flog:
+                end_account = self._safe_account()
+                self.flog.run_end(
+                    total_cycles=total_cycles,
+                    total_errors=total_errors,
+                    start_balance=start_account.get("balance") if start_account else None,
+                    end_balance=end_account.get("balance") if end_account else None,
+                    start_equity=start_account.get("equity") if start_account else None,
+                    end_equity=end_account.get("equity") if end_account else None,
+                )
+
+    def _safe_account(self) -> Optional[dict]:
+        try:
+            return self.mt4_bridge.get_account()
+        except Exception:
+            return None
+
+    def _current_interval(self) -> int:
+        """5 min if a position is open, 15 min if flat."""
+        try:
+            if self.mt4_bridge.get_positions():
+                return 300
+        except Exception:
+            pass
+        return self.cycle_interval
+
+    # ------------------------------------------------------------------
+    # Cycle
+    # ------------------------------------------------------------------
 
     def run_cycle(self, session_id: str):
-        """Execute one full analysis cycle (may have multiple turns for timeframe changes).
-
-        Args:
-            session_id: Unique identifier for this cycle
-        """
+        """Execute one full analysis cycle (may span multiple turns for timeframe changes)."""
         logger.info(f"Cycle {session_id}: Starting")
 
-        # Capture initial screenshot
         try:
             screenshot_path = capture_mt4()
             logger.info(f"Screenshot captured: {screenshot_path}")
         except ScreenshotError as e:
             logger.error(f"Failed to capture MT4: {e}")
+            if self.flog:
+                self.flog.error("screenshot", str(e), session_id=session_id)
             return
 
-        # Get current chart timeframe from screenshot
-        # (For now, assume H1 — Claude can request timeframe change if needed)
-        current_timeframe = "H1"
+        if self.flog:
+            self.flog.screenshot(session_id, turn=0, path=screenshot_path)
 
-        # Multi-turn loop: keep going until Claude says "DONE"
+        current_timeframe = "H1"
         turn = 0
-        max_turns = 10  # Prevent infinite loops
+        max_turns = 10
 
         while turn < max_turns:
             turn += 1
             logger.info(f"Cycle {session_id}: Turn {turn}")
 
-            # Build analysis prompt
             market_context = self._get_market_context()
-            analysis_prompt = self._build_analysis_prompt(market_context)
 
-            # Get session history (all previous turns in this cycle)
+            if self._is_connection_lost(market_context):
+                logger.warning("MT4 connection lost, attempting reconnect...")
+                if self.flog:
+                    self.flog.connection_lost(session_id=session_id, turn=turn)
+                reconnected = self.mt4_bridge.reconnect()
+                if self.flog:
+                    self.flog.reconnect(reconnected, attempts=5, session_id=session_id)
+                if not reconnected:
+                    logger.error("Could not reconnect to MT4, skipping cycle")
+                    if self.flog:
+                        self.flog.error("connection", "Reconnect failed, cycle aborted",
+                                        session_id=session_id, turn=turn)
+                    return
+                market_context = self._get_market_context()
+
+            if self.flog:
+                self.flog.market_context(session_id, turn, market_context)
+
+            analysis_prompt = self._build_analysis_prompt(market_context)
             history = self.storage.get_session_history(session_id)
 
-            # Call Claude
+            claude_start = time.time()
             try:
                 response = call_claude(
                     prompt=analysis_prompt,
@@ -112,25 +166,27 @@ class AurumAgent:
                 )
             except Exception as e:
                 logger.error(f"Claude call failed: {e}")
+                if self.flog:
+                    self.flog.error("claude_call", str(e), session_id=session_id, turn=turn)
                 return
+            claude_elapsed = time.time() - claude_start
 
             if not response.get("ok"):
-                logger.error(f"Claude error: {response.get('error')}")
-                self.storage.save_turn(
-                    session_id=session_id,
-                    role="system",
-                    content=f"Error calling Claude: {response.get('error')}"
-                )
+                err = response.get("error", "unknown")
+                logger.error(f"Claude error: {err}")
+                error_type = "timeout" if "timed out" in err else "claude_error"
+                if self.flog:
+                    self.flog.error(error_type, err, session_id=session_id, turn=turn)
+                self.storage.save_turn(session_id=session_id, role="system",
+                                       content=f"Error calling Claude: {err}")
                 return
 
-            # Extract action
             action = response.get("action")
             raw_response = response.get("raw", "")
 
-            logger.debug(f"Claude action: {action.get('action') if action else 'None'}")
-            logger.debug(f"Raw response: {raw_response[:200]}...")
+            if self.flog and action:
+                self.flog.claude_decision(session_id, turn, action, raw_response, claude_elapsed)
 
-            # Save Claude's turn in history
             self.storage.save_turn(
                 session_id=session_id,
                 role="assistant",
@@ -141,72 +197,65 @@ class AurumAgent:
 
             if not action:
                 logger.warning(f"Invalid action from Claude: {raw_response}")
-                self.storage.save_turn(
-                    session_id=session_id,
-                    role="system",
-                    content="Failed to parse action JSON"
-                )
+                self.storage.save_turn(session_id=session_id, role="system",
+                                       content="Failed to parse action JSON")
+                if self.flog:
+                    self.flog.error("parse_error", f"Could not parse JSON: {raw_response[:200]}",
+                                    session_id=session_id, turn=turn)
                 return
 
-            # Execute action
-            cycle_done = self._execute_action(
-                action=action,
-                session_id=session_id,
-                screenshot_path=screenshot_path
-            )
+            cycle_done = self._execute_action(action, session_id, screenshot_path, turn)
 
             if cycle_done:
                 logger.info(f"Cycle {session_id}: Complete (action={action.get('action')})")
                 return
 
-            # If we changed timeframe, capture new screenshot for next turn
             if action.get("action") == "CHANGE_TIMEFRAME":
                 new_timeframe = action.get("timeframe", current_timeframe)
                 logger.info(f"Changing timeframe to {new_timeframe}")
 
-                # Wait for chart to update
                 time.sleep(2)
+                reconnected = self.mt4_bridge.reconnect()
+                if self.flog:
+                    self.flog.reconnect(reconnected, attempts=5, session_id=session_id)
+                if not reconnected:
+                    logger.error("Lost MT4 connection after timeframe change, ending cycle")
+                    if self.flog:
+                        self.flog.error("connection", "Reconnect failed after CHANGE_TIMEFRAME",
+                                        session_id=session_id, turn=turn)
+                    return
 
-                # Capture new screenshot
                 try:
                     screenshot_path = capture_mt4()
                     current_timeframe = new_timeframe
                     logger.info(f"New screenshot: {screenshot_path}")
+                    if self.flog:
+                        self.flog.screenshot(session_id, turn=turn, path=screenshot_path)
                 except ScreenshotError as e:
                     logger.error(f"Failed to capture new screenshot: {e}")
+                    if self.flog:
+                        self.flog.error("screenshot", str(e), session_id=session_id, turn=turn)
                     return
 
-                # Continue loop for next turn (Claude will see new chart)
                 continue
 
-            # If we got here with no special action, something unexpected happened
-            # (e.g., Claude didn't specify DONE but also didn't specify another action)
-            logger.warning("Unexpected: Claude action did not trigger DONE or CHANGE_TIMEFRAME")
-            break
+    # ------------------------------------------------------------------
+    # Action execution
+    # ------------------------------------------------------------------
 
-    def _execute_action(self, action: Dict[str, Any], session_id: str, screenshot_path: str) -> bool:
-        """Execute a trading action. Returns True if cycle should end.
-
-        Args:
-            action: Action dict from Claude
-            session_id: Session identifier for logging
-            screenshot_path: Path to current screenshot (for logging)
-
-        Returns:
-            True if cycle is complete (DONE), False if cycle should continue
-        """
+    def _execute_action(self, action: Dict[str, Any], session_id: str,
+                        screenshot_path: str, turn: int) -> bool:
+        """Execute a trading action. Returns True if cycle should end."""
         action_type = action.get("action")
         reasoning = action.get("reasoning", "")
-
         logger.info(f"Executing action: {action_type}")
 
         if action_type == "DONE":
             logger.info("Claude finished analysis (DONE)")
-            self.storage.save_turn(
-                session_id=session_id,
-                role="system",
-                content="Analysis complete, waiting for next cycle"
-            )
+            self.storage.save_turn(session_id=session_id, role="system",
+                                   content="Analysis complete, waiting for next cycle")
+            if self.flog:
+                self.flog.action_result(session_id, turn, "DONE", ok=True, detail={})
             return True
 
         elif action_type == "CHANGE_TIMEFRAME":
@@ -214,135 +263,49 @@ class AurumAgent:
             logger.info(f"Claude requested timeframe change: {timeframe}")
             try:
                 self.mt4_bridge.set_timeframe("XAUUSD", timeframe)
-                self.storage.save_turn(
-                    session_id=session_id,
-                    role="system",
-                    content=f"Timeframe changed to {timeframe}, waiting for chart update"
-                )
+                self.storage.save_turn(session_id=session_id, role="system",
+                                       content=f"Timeframe changed to {timeframe}")
+                if self.flog:
+                    self.flog.action_result(session_id, turn, "CHANGE_TIMEFRAME", ok=True,
+                                            detail={"timeframe": timeframe})
             except MT4BridgeError as e:
                 logger.error(f"Failed to change timeframe: {e}")
-                self.storage.save_turn(
-                    session_id=session_id,
-                    role="system",
-                    content=f"Error changing timeframe: {e}"
-                )
-                return True  # End cycle on error
-            return False  # Continue cycle
+                self.storage.save_turn(session_id=session_id, role="system",
+                                       content=f"Error changing timeframe: {e}")
+                if self.flog:
+                    self.flog.action_result(session_id, turn, "CHANGE_TIMEFRAME", ok=False,
+                                            detail={"error": str(e)})
+                return True
+            return False
 
         elif action_type == "BUY":
-            symbol = action.get("symbol", "XAUUSD")
-            lots = action.get("lots", 0.1)
-            sl = action.get("sl")
-            tp = action.get("tp")
-            try:
-                result = self.mt4_bridge.buy(symbol, lots, sl, tp)
-                ticket = result.get("ticket")
-                self.storage.log_order(
-                    session_id=session_id,
-                    action="BUY",
-                    symbol=symbol,
-                    lots=lots,
-                    sl=sl,
-                    tp=tp,
-                    ticket=ticket,
-                    result="OK"
-                )
-                logger.info(f"BUY order placed: ticket={ticket}, lots={lots}")
-                self.storage.save_turn(
-                    session_id=session_id,
-                    role="system",
-                    content=f"BUY order placed successfully (ticket={ticket})\nReasoning: {reasoning}"
-                )
-            except Exception as e:
-                logger.error(f"BUY order failed: {e}")
-                self.storage.log_order(
-                    session_id=session_id,
-                    action="BUY",
-                    symbol=symbol,
-                    lots=lots,
-                    sl=sl,
-                    tp=tp,
-                    result="ERROR",
-                    error_message=str(e)
-                )
-                self.storage.save_turn(
-                    session_id=session_id,
-                    role="system",
-                    content=f"BUY order failed: {e}"
-                )
-            return False  # Continue cycle
+            return self._place_order("BUY", action, session_id, turn, reasoning)
 
         elif action_type == "SELL":
-            symbol = action.get("symbol", "XAUUSD")
-            lots = action.get("lots", 0.1)
-            sl = action.get("sl")
-            tp = action.get("tp")
-            try:
-                result = self.mt4_bridge.sell(symbol, lots, sl, tp)
-                ticket = result.get("ticket")
-                self.storage.log_order(
-                    session_id=session_id,
-                    action="SELL",
-                    symbol=symbol,
-                    lots=lots,
-                    sl=sl,
-                    tp=tp,
-                    ticket=ticket,
-                    result="OK"
-                )
-                logger.info(f"SELL order placed: ticket={ticket}, lots={lots}")
-                self.storage.save_turn(
-                    session_id=session_id,
-                    role="system",
-                    content=f"SELL order placed successfully (ticket={ticket})\nReasoning: {reasoning}"
-                )
-            except Exception as e:
-                logger.error(f"SELL order failed: {e}")
-                self.storage.log_order(
-                    session_id=session_id,
-                    action="SELL",
-                    symbol=symbol,
-                    lots=lots,
-                    sl=sl,
-                    tp=tp,
-                    result="ERROR",
-                    error_message=str(e)
-                )
-                self.storage.save_turn(
-                    session_id=session_id,
-                    role="system",
-                    content=f"SELL order failed: {e}"
-                )
-            return False
+            return self._place_order("SELL", action, session_id, turn, reasoning)
 
         elif action_type == "CLOSE":
             ticket = action.get("ticket")
             try:
                 self.mt4_bridge.close(ticket)
-                self.storage.log_order(
-                    session_id=session_id,
-                    action="CLOSE",
-                    symbol="XAUUSD",
-                    lots=0,
-                    sl=0,
-                    tp=0,
-                    ticket=ticket,
-                    result="OK"
-                )
+                self.storage.log_order(session_id=session_id, action="CLOSE",
+                                       symbol="XAUUSD", lots=0, sl=0, tp=0,
+                                       ticket=ticket, result="OK")
                 logger.info(f"Position closed: ticket={ticket}")
-                self.storage.save_turn(
-                    session_id=session_id,
-                    role="system",
-                    content=f"Position closed (ticket={ticket})"
-                )
+                self.storage.save_turn(session_id=session_id, role="system",
+                                       content=f"Position closed (ticket={ticket})")
+                if self.flog:
+                    self.flog.action_result(session_id, turn, "CLOSE", ok=True,
+                                            detail={"ticket": ticket})
             except Exception as e:
                 logger.error(f"Close order failed: {e}")
-                self.storage.save_turn(
-                    session_id=session_id,
-                    role="system",
-                    content=f"Close failed: {e}"
-                )
-            return False
+                self.storage.save_turn(session_id=session_id, role="system",
+                                       content=f"Close failed: {e}")
+                if self.flog:
+                    self.flog.action_result(session_id, turn, "CLOSE", ok=False,
+                                            detail={"ticket": ticket, "error": str(e)})
+                    self.flog.error("order_failed", str(e), session_id=session_id, turn=turn)
+            return True
 
         elif action_type == "MODIFY":
             ticket = action.get("ticket")
@@ -350,39 +313,121 @@ class AurumAgent:
             tp = action.get("tp")
             try:
                 self.mt4_bridge.modify(ticket, sl, tp)
-                self.storage.log_order(
-                    session_id=session_id,
-                    action="MODIFY",
-                    symbol="XAUUSD",
-                    lots=0,
-                    sl=sl,
-                    tp=tp,
-                    ticket=ticket,
-                    result="OK"
-                )
+                self.storage.log_order(session_id=session_id, action="MODIFY",
+                                       symbol="XAUUSD", lots=0, sl=sl, tp=tp,
+                                       ticket=ticket, result="OK")
                 logger.info(f"Position modified: ticket={ticket}, sl={sl}, tp={tp}")
-                self.storage.save_turn(
-                    session_id=session_id,
-                    role="system",
-                    content=f"Position modified (ticket={ticket}, SL={sl}, TP={tp})"
-                )
+                self.storage.save_turn(session_id=session_id, role="system",
+                                       content=f"Position modified (ticket={ticket}, SL={sl}, TP={tp})")
+                if self.flog:
+                    self.flog.action_result(session_id, turn, "MODIFY", ok=True,
+                                            detail={"ticket": ticket, "sl": sl, "tp": tp})
+            except MT4BridgeError as e:
+                error_str = str(e)
+                hint = ""
+                if "modify_failed" in error_str:
+                    try:
+                        stop_level = self.mt4_bridge.get_stop_level("XAUUSD")
+                        hint = (
+                            f" Broker stop level for XAUUSD is {stop_level:.2f} pts. "
+                            f"SL must be at least {stop_level:.2f} away from current price."
+                        )
+                    except Exception:
+                        hint = " Likely cause: SL too close to current price (broker stop level)."
+                logger.error(f"Modify order failed: {e}{hint}")
+                self.storage.save_turn(session_id=session_id, role="system",
+                                       content=f"Modify failed: {e}{hint}")
+                if self.flog:
+                    self.flog.action_result(session_id, turn, "MODIFY", ok=False,
+                                            detail={"ticket": ticket, "sl": sl, "tp": tp,
+                                                    "error": error_str + hint})
+                    self.flog.error("modify_failed", error_str + hint,
+                                    context={"ticket": ticket, "sl": sl, "tp": tp},
+                                    session_id=session_id, turn=turn)
             except Exception as e:
                 logger.error(f"Modify order failed: {e}")
-                self.storage.save_turn(
-                    session_id=session_id,
-                    role="system",
-                    content=f"Modify failed: {e}"
-                )
-            return False
+                self.storage.save_turn(session_id=session_id, role="system",
+                                       content=f"Modify failed: {e}")
+                if self.flog:
+                    self.flog.error("modify_failed", str(e), session_id=session_id, turn=turn)
+            return True
 
         else:
             logger.warning(f"Unknown action: {action_type}")
-            self.storage.save_turn(
-                session_id=session_id,
-                role="system",
-                content=f"Unknown action: {action_type}"
-            )
+            self.storage.save_turn(session_id=session_id, role="system",
+                                   content=f"Unknown action: {action_type}")
+            if self.flog:
+                self.flog.error("unknown_action", f"Unrecognised action: {action_type}",
+                                session_id=session_id, turn=turn)
             return True
+
+    def _place_order(self, side: str, action: dict, session_id: str,
+                     turn: int, reasoning: str) -> bool:
+        """Shared BUY/SELL logic with duplicate-position guard."""
+        symbol = action.get("symbol", "XAUUSD")
+        lots = action.get("lots", 0.1)
+        sl = action.get("sl")
+        tp = action.get("tp")
+
+        try:
+            existing = self.mt4_bridge.get_positions()
+            if existing:
+                tickets = [str(p["ticket"]) for p in existing]
+                msg = f"{side} rejected: position(s) already open ({', '.join(tickets)}). Close or modify instead."
+                logger.warning(f"{side} blocked: {tickets}")
+                self.storage.save_turn(session_id=session_id, role="system", content=msg)
+                if self.flog:
+                    self.flog.action_result(session_id, turn, side, ok=False,
+                                            detail={"reason": "duplicate_position",
+                                                    "open_tickets": tickets})
+                    self.flog.error("duplicate_position", msg,
+                                    context={"open_tickets": tickets},
+                                    session_id=session_id, turn=turn)
+                return True
+
+            fn = self.mt4_bridge.buy if side == "BUY" else self.mt4_bridge.sell
+            result = fn(symbol, lots, sl, tp)
+            ticket = result.get("ticket")
+            self.storage.log_order(session_id=session_id, action=side, symbol=symbol,
+                                   lots=lots, sl=sl, tp=tp, ticket=ticket, result="OK")
+            logger.info(f"{side} order placed: ticket={ticket}, lots={lots}")
+            self.storage.save_turn(
+                session_id=session_id, role="system",
+                content=f"{side} order placed successfully (ticket={ticket})\nReasoning: {reasoning}"
+            )
+            if self.flog:
+                self.flog.action_result(session_id, turn, side, ok=True,
+                                        detail={"ticket": ticket, "lots": lots,
+                                                "sl": sl, "tp": tp, "symbol": symbol})
+
+        except Exception as e:
+            logger.error(f"{side} order failed: {e}")
+            self.storage.log_order(session_id=session_id, action=side, symbol=symbol,
+                                   lots=lots, sl=sl, tp=tp, result="ERROR",
+                                   error_message=str(e))
+            self.storage.save_turn(session_id=session_id, role="system",
+                                   content=f"{side} order failed: {e}")
+            if self.flog:
+                self.flog.action_result(session_id, turn, side, ok=False,
+                                        detail={"error": str(e), "sl": sl, "tp": tp})
+                self.flog.error("order_failed", str(e),
+                                context={"side": side, "sl": sl, "tp": tp},
+                                session_id=session_id, turn=turn)
+
+        return True
+
+    # ------------------------------------------------------------------
+    # Market context
+    # ------------------------------------------------------------------
+
+    def _is_connection_lost(self, context: dict) -> bool:
+        """Returns True if all MT4 data calls failed simultaneously."""
+        return (
+            context.get("price") is None
+            and context.get("account") is None
+            and context.get("positions") == []
+            and context.get("server_time") is None
+        )
 
     def _get_market_context(self) -> dict:
         """Query MT4 for current market state. Failures return None/empty gracefully."""

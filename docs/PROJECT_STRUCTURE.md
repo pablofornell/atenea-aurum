@@ -14,6 +14,7 @@
   - `cleanup_orders.py` — Limpieza de órdenes
   - `cleanup_all_orders.py` — Limpieza completa
   - `find_lot_size.py` — Cálculo de tamaño de lote
+  - `review_session.py` — CLI para revisar sesiones y generar prompts de mejora
 - **`tests/`** — Suite de tests
   - `unit/` — Tests unitarios
   - `integration/` — Tests de integración con MT4
@@ -22,12 +23,15 @@
 - `aurum.db` — Base de datos SQLite con historial de sesiones y órdenes
 
 ### `/logs/` — Registros
-- `aurum.log` — Log de ejecución del sistema
+- `aurum.log` — Log operacional en tiempo real (Python logging)
+- `aurum_events.jsonl` — Eventos estructurados JSON para el feedback loop (append-only)
+- `sessions/` — Informes markdown por sesión, generados automáticamente al parar el sistema
 
 ### `/docs/` — Documentación
 - `START_HERE.md` — Guía de inicio
 - `QUICKSTART.md` — Inicio rápido
 - `TESTING.md` — Guía de testing
+- `LOGGING.md` — Sistema de logging y ciclo de feedback
 - `PROJECT_STRUCTURE.md` — Esta documentación
 
 ### `/ops/` — Despliegue y Operaciones MT4

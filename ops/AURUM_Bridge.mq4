@@ -272,7 +272,12 @@ string ProcessCommand(string raw)
          return "ERROR|ticket_not_found";
       }
       if (!OrderModify(ticket, OrderOpenPrice(), sl, tp, 0, clrNONE)) {
-         return "ERROR|modify_failed|" + IntegerToString(GetLastError());
+         int err = GetLastError();
+         string err_name = (err == 130) ? "invalid_stops" :
+                           (err == 129) ? "invalid_price" :
+                           (err == 131) ? "invalid_volume" :
+                           "err_" + IntegerToString(err);
+         return "ERROR|modify_failed|" + err_name;
       }
       return "OK|modified";
    }
@@ -338,6 +343,16 @@ string ProcessCommand(string raw)
    if (cmd == "GET_TIME") {
       datetime t = TimeCurrent();
       return "OK|" + TimeToString(t, TIME_DATE|TIME_MINUTES|TIME_SECONDS);
+   }
+
+   //--- GET_STOPLEVEL
+   if (cmd == "GET_STOPLEVEL") {
+      if (n < 2) return "ERROR|missing_symbol";
+      string sym = parts[1];
+      double point      = MarketInfo(sym, MODE_POINT);
+      double stop_level = MarketInfo(sym, MODE_STOPLEVEL);
+      // stop_level is in points; convert to price units
+      return "OK|" + DoubleToString(stop_level * point, 5);
    }
 
    return "ERROR|unknown_command";
