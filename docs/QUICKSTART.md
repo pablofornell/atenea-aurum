@@ -105,20 +105,28 @@ Stop with: **Ctrl+C**
 
 ```
 ├── aurum.py                # Main trading loop — launched by setup.py
-├── requirements.txt        # Dependencies: pytest, pywin32, Pillow
-├── aurum.log              # Auto-created log file
+├── requirements.txt        # Dependencies: pytest, pywin32, Pillow, rich
+├── aurum.log              # Auto-created log file (RotatingFileHandler)
 ├── aurum.db               # Auto-created SQLite database
 ├── CLAUDE.md              # Project context (loaded automatically)
+├── strategy/
+│   └── CLAUDE.md          # Identidad del agente AURUM (SMC, constraints, JSON format)
 ├── ops/
 │   ├── install_ea.ps1     # Automatic setup script
 │   ├── AURUM_Bridge.mq4   # MT4 Expert Advisor
 │   ├── socket-library-mt4-mt5.mqh  # Winsock header
 │   └── README.md          # Detailed setup instructions
+├── logs/
+│   ├── aurum_events.jsonl # Eventos estructurados JSONL (append-only)
+│   └── sessions/          # Informes markdown por sesión
 └── src/
-    ├── agent/             # Trading agent logic
-    ├── bridge/            # Claude CLI wrapper
-    ├── db/                # SQLite storage
+    ├── agent/             # Orquestador + prompts + filtros + memoria + feedback
+    ├── bridge/            # Claude CLI wrapper (subprocess + stdin)
+    ├── db/                # SQLite storage (sessions, orders, cycle_decisions)
     ├── mt4/               # MT4 TCP client + screenshot
+    ├── risk/              # Módulo de riesgo: config, validator, circuit_breaker, sizer, manager
+    ├── ui/                # Terminal UI (rich live dashboard)
+    ├── tools/             # Scripts de diagnóstico y revisión de sesiones
     └── tests/             # Unit & integration tests
 ```
 

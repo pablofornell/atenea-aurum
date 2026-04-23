@@ -39,28 +39,70 @@ El prompt se pasa por **stdin** para evitar el límite de caracteres de la termi
 ### Workspaces
 - **`/src`** — Código fuente
   - `agent/` — Lógica del agente trading
+    - `agent.py` — Orquestador principal del ciclo de trading
+    - `prompts.py` — System prompt SMC para la instancia Claude agente
+    - `filters.py` — `EntryFilters`: bloquea Asia/Late NY, ATR<8, spread>30
+    - `memory.py` — `CycleMemory`: inyecta historial de decisiones en el prompt
+    - `feedback_logger.py` — `FeedbackLogger`: escribe eventos JSONL append-only
+    - `session_reporter.py` — `SessionReporter`: genera informes markdown por sesión
   - `bridge/` — Integración Claude y MT4
+    - `claude_bridge.py` — Llama a Claude Code CLI via subprocess con stdin
   - `mt4/` — Conexión MetaTrader 4
+    - `bridge.py` — `MT4Bridge`: TCP socket 127.0.0.1:5555 ↔ EA
+    - `screenshot.py` — Captura de pantalla de la ventana MT4
   - `db/` — Persistencia (SQLite)
-  - `strategies/` — Estrategias trading
+    - `storage.py` — `SessionStorage`: tablas `sessions`, `orders`, `cycle_decisions`
+  - `risk/` — Gestión de riesgo (validación, circuit breaker, sizing)
+    - `config.py` — `RiskConfig`: parámetros centralizados (dataclass)
+    - `validator.py` — `OrderValidator`: valida SL/TP/lots/R:R antes de enviar a MT4
+    - `circuit_breaker.py` — `CircuitBreaker`: halt si 3% drawdown o 3 pérdidas consecutivas
+    - `position_sizer.py` — `calculate_lots`: sizing al 1% de balance, máx 0.50 lotes
+    - `trade_manager.py` — `TradeManager`: breakeven a 1R, trailing a 2R
+  - `ui/` — Interfaz de terminal
+    - `tui.py` — `AurumTUI`: dashboard rich en tiempo real (live layout)
+  - `strategies/` — Módulos de estrategia (reservado para expansión futura)
   - `tools/` — Scripts de utilidad y diagnóstico
-  - `tests/` — Suite de tests (unit/ e integration/)
-- **`/docs`** — Documentación (guías, testing, estructura)
+    - `diagnostic.py` — Diagnóstico básico del sistema
+    - `advanced_diagnostic.py` — Diagnóstico avanzado
+    - `cleanup_orders.py` / `cleanup_all_orders.py` — Limpieza de órdenes MT4
+    - `find_lot_size.py` — Cálculo manual de tamaño de lote
+    - `review_session.py` — CLI para revisar sesiones y generar prompts de mejora
+  - `tests/` — Suite de tests
+    - `unit/` — Tests unitarios (no requieren MT4)
+    - `integration/` — Tests de integración con MT4 real
+- **`/docs`** — Documentación (guías, testing, estructura, logging)
 - **`/ops`** — EA, instalación, despliegue MT4
 - **`/planning`** — Specs y decisiones arquitectónicas
 - **`/data`** — Datos persistentes (aurum.db)
 - **`/logs`** — Archivos de log del sistema
+  - `aurum.log` — Log operacional Python (RotatingFileHandler)
+  - `aurum_events.jsonl` — Eventos estructurados JSON, append-only por run
+  - `sessions/` — Informes markdown por sesión (`<ts>_<runid>.md`)
 
 ## Routing
 | Tarea | Carpeta | Leer | Notas |
 |-------|---------|------|-------|
 | Especificar feature | `/planning` | — | Usar: `feature-name_spec.md` |
-| Escribir código | `/src` | — | Modular por componente (agent, bridge, mt4, etc) |
-| Agregar/editar tests | `/src/tests` | — | Seguir: `test_*.py`, `/integration/` para MT4 |
-| Scripts de diagnóstico | `/src/tools` | — | Para debugging y utilidades |
+| Orquestación del agente | `src/agent/agent.py` | — | Punto de entrada del ciclo trading |
+| Prompts / identidad SMC | `src/agent/prompts.py`, `strategy/CLAUDE.md` | — | Dos capas: system prompt + identidad agente |
+| Filtros de entrada | `src/agent/filters.py` | — | Sesión, ATR, spread — modificar con cuidado |
+| Memoria entre ciclos | `src/agent/memory.py` | `src/db/storage.py` | Lee `cycle_decisions` de SQLite |
+| Parámetros de riesgo | `src/risk/config.py` | — | `RiskConfig` — cambiar aquí, aplica a todo |
+| Validación de órdenes | `src/risk/validator.py` | `src/risk/config.py` | SL mínimo, R:R, lots máx |
+| Circuit breaker | `src/risk/circuit_breaker.py` | `src/risk/config.py` | Drawdown diario / pérdidas consecutivas |
+| Sizing de posición | `src/risk/position_sizer.py` | — | 1% balance, techo en `max_lots` |
+| Gestión de posición | `src/risk/trade_manager.py` | — | Breakeven + trailing automático |
+| Puente Claude CLI | `src/bridge/claude_bridge.py` | — | stdin, cwd=strategy/, timeout 120s |
+| Conexión MT4 | `src/mt4/bridge.py` | — | TCP 127.0.0.1:5555, protocol texto |
+| Feedback / eventos | `src/agent/feedback_logger.py` | `docs/LOGGING.md` | JSONL append-only, no bloquea el agente |
+| Informes de sesión | `src/agent/session_reporter.py` | `docs/LOGGING.md` | Genera markdown desde JSONL |
+| Revisión de sesión | `src/tools/review_session.py` | `docs/LOGGING.md` | CLI: `latest`, `--prompt`, `--save` |
+| Dashboard TUI | `src/ui/tui.py` | — | Requiere `rich`; opcional (se pasa como parámetro) |
+| Agregar/editar tests | `src/tests/` | `docs/TESTING.md` | `test_*.py`; `/integration/` requiere MT4 |
+| Scripts de diagnóstico | `src/tools/` | — | Para debugging sin MT4 activo |
 | Documentar | `/docs` | `PROJECT_STRUCTURE.md` | Guías de setup, testing, arquitectura |
 | Desplegar/depurar MT4 | `/ops` | `README.md` | Instalación EA, troubleshooting |
-| Decision records | `/planning` | — | Usar: `DD-MM-YYYY-decision.md` |
+| Decision records | `/planning` | — | Usar: `DD-MM-YYYY-decision-title.md` |
 
 ## Testing
 - Framework: `pytest`
