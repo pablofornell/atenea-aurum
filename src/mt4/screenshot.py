@@ -148,7 +148,7 @@ def _find_chart_bounds(
 
 
 def capture_mt4(
-    save_dir: str = "tmp/screenshots",
+    save_dir: str = "data/screenshots",
     partial_title: str = "NMarkets",
     restore_if_minimized: bool = True,
 ) -> str:

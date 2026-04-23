@@ -34,6 +34,8 @@ env/
 
 # Project-specific
 data/aurum.db
+data/screenshots/
+data/test_screenshots/
 logs/*
 !logs/.gitkeep
 tmp/

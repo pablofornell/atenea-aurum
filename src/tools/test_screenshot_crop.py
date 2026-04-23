@@ -34,7 +34,7 @@ def main():
         print("Install with: pip install pywin32 Pillow")
         sys.exit(1)
 
-    save_dir = "tmp/screenshots"
+    save_dir = "data/screenshots"
     os.makedirs(save_dir, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
 

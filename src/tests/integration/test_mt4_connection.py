@@ -182,7 +182,7 @@ class TestScreenshot:
     def test_capture_screenshot(self):
         """Test capturing MT4 screenshot."""
         try:
-            path = capture_mt4(save_dir="tmp/test_screenshots")
+            path = capture_mt4(save_dir="data/test_screenshots")
             assert path is not None
             assert len(path) > 0
             # File should exist
