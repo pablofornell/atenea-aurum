@@ -1,6 +1,19 @@
-# Aurum
+# Aurum — Developer Context
 
-Aurum — Agentic Trading System basado en LLM para operar XAUUSD (Gold/USD)
+Aurum es un sistema de trading agéntico basado en LLM para operar XAUUSD (Gold/USD).
+
+## Tu rol aquí
+
+Cuando trabajas en este repositorio **no eres el agente AURUM**. Eres el ingeniero que desarrolla y mantiene su evolución y retroalimentación.
+
+El agente AURUM es una instancia separada de Claude Code CLI, lanzada por subprocess desde `src/bridge/claude_bridge.py` con `cwd=strategy/`. Esa instancia carga `strategy/CLAUDE.md` como identidad y recibe el system prompt de `src/agent/prompts.py`.
+
+Tu trabajo en este repo es:
+- Desarrollar y mantener el código del sistema (`src/`, `ops/`)
+- Revisar logs de sesión (`logs/sessions/`) y sacar conclusiones
+- Mejorar los prompts del agente (`src/agent/prompts.py`, `strategy/CLAUDE.md`)
+- Escribir y mantener tests (`src/tests/`)
+- Tomar decisiones arquitectónicas (`planning/`)
 
 ## Tech Stack
 - Frontend: Windows Terminal (CLI)
@@ -15,11 +28,11 @@ El agente llama a Claude Code CLI mediante subprocess, no usa el SDK de Anthropi
 ```python
 subprocess.run(
     ["claude", "--dangerously-skip-permissions", "--output-format", "json"],
-    input=prompt, capture_output=True, text=True, cwd=REPO_DIR
+    input=prompt, capture_output=True, text=True, cwd=STRATEGY_DIR  # strategy/
 )
 ```
 
-El prompt se pasa por **stdin** (no como argumento `-p`) para evitar el límite de caracteres de la terminal. `cwd=REPO_DIR` hace que Claude Code cargue este `CLAUDE.md` como identidad AURUM automáticamente. No hay API key ni SDK de Anthropic.
+El prompt se pasa por **stdin** para evitar el límite de caracteres de la terminal. `cwd=STRATEGY_DIR` hace que la instancia agente cargue `strategy/CLAUDE.md` como su identidad. No hay API key ni SDK de Anthropic.
 
 ## Directorios
 
