@@ -511,7 +511,47 @@ class AurumAgent:
             logger.warning(f"get_server_time failed: {e}")
             context["server_time"] = None
 
+        try:
+            context["atr"] = self.mt4_bridge.get_atr("XAUUSD", 14)
+        except Exception as e:
+            logger.warning(f"get_atr failed: {e}")
+            context["atr"] = None
+
+        try:
+            context["day_ohlc"] = self.mt4_bridge.get_day_ohlc("XAUUSD")
+        except Exception as e:
+            logger.warning(f"get_day_ohlc failed: {e}")
+            context["day_ohlc"] = None
+
+        try:
+            context["week_hl"] = self.mt4_bridge.get_week_hl("XAUUSD")
+        except Exception as e:
+            logger.warning(f"get_week_hl failed: {e}")
+            context["week_hl"] = None
+
         return context
+
+    @staticmethod
+    def _trading_session(server_time: str) -> str:
+        """Derive trading session name from MT4 server time string (broker = GMT+2/+3)."""
+        try:
+            hour = int(server_time[11:13])
+        except (TypeError, IndexError, ValueError):
+            return "Unknown"
+        # Approximate GMT offsets: broker server is typically GMT+2 (winter) / GMT+3 (summer).
+        # We treat server time as GMT+2 for a conservative estimate.
+        gmt = (hour - 2) % 24
+        if 0 <= gmt < 7:
+            return "Asia (low volatility — tight ranges, avoid breakout trades)"
+        if 7 <= gmt < 10:
+            return "London Open (rising volatility — watch for trend initiation)"
+        if 10 <= gmt < 13:
+            return "London (high volatility — trend-following preferred)"
+        if 13 <= gmt < 17:
+            return "London/NY Overlap (peak volatility — highest liquidity, strong moves)"
+        if 17 <= gmt < 22:
+            return "New York (moderate-high volatility — continuation or reversal setups)"
+        return "Late NY / Pre-Asia (low volatility — avoid new entries)"
 
     def _build_analysis_prompt(self, market_context: dict) -> str:
         """Build the prompt for Claude to analyze the current chart."""
@@ -534,7 +574,35 @@ class AurumAgent:
 
         server_time = market_context.get("server_time")
         if server_time:
-            lines.append(f"Server Time: {server_time}")
+            session = self._trading_session(server_time)
+            lines.append(f"Server Time: {server_time}  |  Session: {session}")
+
+        atr = market_context.get("atr")
+        if atr is not None:
+            sl_1x = round(atr * 1.0, 2)
+            sl_15x = round(atr * 1.5, 2)
+            lines.append(
+                f"ATR(14): {atr:.2f} USD  →  "
+                f"Suggested SL buffer: {sl_1x:.2f} (1×ATR) – {sl_15x:.2f} (1.5×ATR)"
+            )
+
+        ohlc = market_context.get("day_ohlc")
+        if ohlc:
+            bias = "BULLISH" if ohlc["td_open"] > ohlc["pd_close"] else "BEARISH"
+            lines.append(
+                f"\n## Key Daily Levels (XAUUSD)\n"
+                f"  Prev Day  Open: {ohlc['pd_open']:.2f} | High: {ohlc['pd_high']:.2f} | "
+                f"Low: {ohlc['pd_low']:.2f} | Close: {ohlc['pd_close']:.2f}\n"
+                f"  Today     Open: {ohlc['td_open']:.2f}  "
+                f"(gap bias vs PDC: {bias})"
+            )
+
+        week = market_context.get("week_hl")
+        if week:
+            lines.append(
+                f"  Prev Week High: {week['pw_high']:.2f} | Low: {week['pw_low']:.2f}  |  "
+                f"Curr Week High: {week['cw_high']:.2f} | Low: {week['cw_low']:.2f}"
+            )
 
         positions = market_context.get("positions", [])
         if positions:
@@ -545,18 +613,18 @@ class AurumAgent:
                     f"SL: {p['sl']:.5f} | TP: {p['tp']:.5f} | P&L: {p['profit']:+.2f}"
                 )
         else:
-            lines.append("Open Positions: None")
+            lines.append("\nOpen Positions: None")
 
         lines.append("""
 ## Chart Analysis
-Analyze the chart screenshot and decide your next action.
+Analyze the chart screenshot together with the numerical context above and decide your next action.
 
 Look for:
-- Support and resistance levels
-- Trend direction and strength
-- Momentum indicators (if visible)
-- Entry and exit points
-- Risk/reward ratios (minimum 1:2)
+- Confluence between price action and the Key Daily/Weekly Levels listed above
+- Trend direction and strength relative to PDC (previous day close) bias
+- Momentum indicators visible on chart (RSI, EMAs)
+- Entry and exit points with SL sized using the ATR buffer suggested above
+- Risk/reward ratios (minimum 1:2); TP should be the next key level
 
 Use the market context above when sizing positions and setting SL/TP.
 

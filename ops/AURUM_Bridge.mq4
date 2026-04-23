@@ -351,8 +351,51 @@ string ProcessCommand(string raw)
       string sym = parts[1];
       double point      = MarketInfo(sym, MODE_POINT);
       double stop_level = MarketInfo(sym, MODE_STOPLEVEL);
-      // stop_level is in points; convert to price units
       return "OK|" + DoubleToString(stop_level * point, 5);
+   }
+
+   //--- GET_ATR  GET_ATR|XAUUSD|14
+   if (cmd == "GET_ATR") {
+      if (n < 3) return "ERROR|missing_params";
+      string sym    = parts[1];
+      int    period = (int)StringToInteger(parts[2]);
+      double atr    = iATR(sym, 0, period, 1);
+      if (atr <= 0) return "ERROR|atr_unavailable";
+      return "OK|" + DoubleToString(atr, 5);
+   }
+
+   //--- GET_DAY_OHLC  GET_DAY_OHLC|XAUUSD  — returns prev-day O,H,L,C and today O
+   if (cmd == "GET_DAY_OHLC") {
+      if (n < 2) return "ERROR|missing_symbol";
+      string sym = parts[1];
+      double pd_open  = iOpen (sym, PERIOD_D1, 1);
+      double pd_high  = iHigh (sym, PERIOD_D1, 1);
+      double pd_low   = iLow  (sym, PERIOD_D1, 1);
+      double pd_close = iClose(sym, PERIOD_D1, 1);
+      double td_open  = iOpen (sym, PERIOD_D1, 0);
+      if (pd_close <= 0) return "ERROR|ohlc_unavailable";
+      string result = DoubleToString(pd_open,  2) + "," +
+                      DoubleToString(pd_high,  2) + "," +
+                      DoubleToString(pd_low,   2) + "," +
+                      DoubleToString(pd_close, 2) + "," +
+                      DoubleToString(td_open,  2);
+      return "OK|" + result;
+   }
+
+   //--- GET_WEEK_HL  GET_WEEK_HL|XAUUSD  — returns prev-week H,L and current-week H,L
+   if (cmd == "GET_WEEK_HL") {
+      if (n < 2) return "ERROR|missing_symbol";
+      string sym   = parts[1];
+      double pw_high = iHigh(sym, PERIOD_W1, 1);
+      double pw_low  = iLow (sym, PERIOD_W1, 1);
+      double cw_high = iHigh(sym, PERIOD_W1, 0);
+      double cw_low  = iLow (sym, PERIOD_W1, 0);
+      if (pw_high <= 0) return "ERROR|weekhl_unavailable";
+      string result = DoubleToString(pw_high, 2) + "," +
+                      DoubleToString(pw_low,  2) + "," +
+                      DoubleToString(cw_high, 2) + "," +
+                      DoubleToString(cw_low,  2);
+      return "OK|" + result;
    }
 
    return "ERROR|unknown_command";

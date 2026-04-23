@@ -233,6 +233,50 @@ class MT4Bridge:
             "spread": float(parts[2]),
         }
 
+    def get_atr(self, symbol: str = "XAUUSD", period: int = 14) -> float:
+        """Get ATR(period) value for current bar.
+
+        Returns:
+            ATR value in price units (e.g. 18.40 for gold).
+        """
+        response = self._send_cmd(f"GET_ATR|{symbol}|{period}")
+        result = self._parse_response(response)
+        return float(result["data"])
+
+    def get_day_ohlc(self, symbol: str = "XAUUSD") -> dict:
+        """Get previous-day OHLC and today's open.
+
+        Returns:
+            {"pd_open": float, "pd_high": float, "pd_low": float,
+             "pd_close": float, "td_open": float}
+        """
+        response = self._send_cmd(f"GET_DAY_OHLC|{symbol}")
+        result = self._parse_response(response)
+        parts = result["data"].split(",")
+        return {
+            "pd_open":  float(parts[0]),
+            "pd_high":  float(parts[1]),
+            "pd_low":   float(parts[2]),
+            "pd_close": float(parts[3]),
+            "td_open":  float(parts[4]),
+        }
+
+    def get_week_hl(self, symbol: str = "XAUUSD") -> dict:
+        """Get previous-week and current-week High/Low.
+
+        Returns:
+            {"pw_high": float, "pw_low": float, "cw_high": float, "cw_low": float}
+        """
+        response = self._send_cmd(f"GET_WEEK_HL|{symbol}")
+        result = self._parse_response(response)
+        parts = result["data"].split(",")
+        return {
+            "pw_high": float(parts[0]),
+            "pw_low":  float(parts[1]),
+            "cw_high": float(parts[2]),
+            "cw_low":  float(parts[3]),
+        }
+
     def get_stop_level(self, symbol: str = "XAUUSD") -> float:
         """Get the broker's minimum stop distance in points for a symbol.
 
