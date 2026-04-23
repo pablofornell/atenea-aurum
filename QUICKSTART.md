@@ -11,7 +11,7 @@
 Run this single command:
 
 ```bash
-python start.py
+python setup.py
 ```
 
 This automates everything and will guide you through the few manual MT4 steps.
@@ -53,7 +53,7 @@ Expected: `✓ Connected!`
 ### 5. Run Aurum
 
 ```bash
-python main.py
+python aurum.py
 ```
 
 Expected output:
@@ -104,7 +104,7 @@ Stop with: **Ctrl+C**
 ## Files Overview
 
 ```
-├── main.py                 # Entry point — run this
+├── aurum.py                # Main trading loop — launched by setup.py
 ├── requirements.txt        # Dependencies: pytest, pywin32, Pillow
 ├── aurum.log              # Auto-created log file
 ├── aurum.db               # Auto-created SQLite database
@@ -154,7 +154,7 @@ For long-term operation:
 - [ ] Set up log rotation (aurum.log grows over time)
 - [ ] Consider running in tmux/screen so it survives SSH disconnection
 - [ ] Monitor aurum.db size (clean old cycles periodically)
-- [ ] Adjust `cycle_interval` in `main.py` if needed (default: 900s = 15 min)
+- [ ] Adjust `cycle_interval` in `aurum.py` if needed (default: 900s = 15 min)
 
 ---
 

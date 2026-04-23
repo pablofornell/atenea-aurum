@@ -204,12 +204,12 @@ def start_aurum():
     """Start Aurum trading system."""
     step("7️⃣  STARTING AURUM TRADING SYSTEM")
 
-    logger.info("Launching main.py...")
+    logger.info("Launching aurum.py...")
     logger.info("\nPress Ctrl+C to stop the system\n")
 
     try:
         result = subprocess.run(
-            [sys.executable, "main.py"],
+            [sys.executable, "aurum.py"],
             cwd=str(REPO_DIR)
         )
         return result.returncode == 0

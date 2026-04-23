@@ -12,7 +12,7 @@ cd C:\Users\hefesto-w10x64\Documents\repos\atenea-aurum
 ### 2. Run the Automated Startup
 
 ```bash
-python start.py
+python setup.py
 ```
 
 That's it! The script will:
@@ -96,11 +96,11 @@ Press **Ctrl+C** in the terminal
 
 | Problem | Solution |
 |---------|----------|
-| "MT4 path not found" | Update `MT4_PATH` in `start.py` if your MT4 is installed elsewhere |
+| "MT4 path not found" | Update `MT4_PATH` in `setup.py` if your MT4 is installed elsewhere |
 | "Cannot compile EA" | Make sure `socket-library-mt4-mt5.mqh` was copied to `MQL4/Include/` |
 | "MT4 did not respond" | Ensure EA has green smiley on chart, DLL imports enabled, port 5555 is free |
 | "Cannot connect to MT4" | Run: `netstat -an \| findstr 5555` to verify port is listening |
-| Python import errors | Run `python start.py` again to reinstall dependencies |
+| Python import errors | Run `python setup.py` again to reinstall dependencies |
 
 ---
 
@@ -123,4 +123,4 @@ Once the system is running:
 
 ---
 
-**Ready?** Run: `python start.py`
+**Ready?** Run: `python setup.py`
