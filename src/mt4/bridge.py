@@ -175,6 +175,74 @@ class MT4Bridge:
                 result["orders_count"] = 0
         return result
 
+    def get_positions(self) -> list:
+        """Get all open AURUM positions with full detail.
+
+        Returns:
+            List of dicts: {ticket, type, symbol, lots, open_price, sl, tp, profit}
+        """
+        response = self._send_cmd("GET_POSITIONS")
+        result = self._parse_response(response)
+        positions = []
+        if result["ok"] and result["data"]:
+            for pos_str in result["data"].split(";"):
+                if not pos_str:
+                    continue
+                parts = pos_str.split(",")
+                if len(parts) >= 8:
+                    positions.append({
+                        "ticket": int(parts[0]),
+                        "type": parts[1],
+                        "symbol": parts[2],
+                        "lots": float(parts[3]),
+                        "open_price": float(parts[4]),
+                        "sl": float(parts[5]),
+                        "tp": float(parts[6]),
+                        "profit": float(parts[7]),
+                    })
+        return positions
+
+    def get_account(self) -> dict:
+        """Get account balance, equity, and free margin.
+
+        Returns:
+            {"balance": float, "equity": float, "free_margin": float, "currency": str}
+        """
+        response = self._send_cmd("GET_ACCOUNT")
+        result = self._parse_response(response)
+        parts = result["data"].split(",")
+        return {
+            "balance": float(parts[0]),
+            "equity": float(parts[1]),
+            "free_margin": float(parts[2]),
+            "currency": parts[3] if len(parts) > 3 else "USD",
+        }
+
+    def get_price(self, symbol: str = "XAUUSD") -> dict:
+        """Get current bid/ask/spread for a symbol.
+
+        Returns:
+            {"bid": float, "ask": float, "spread": float}
+        """
+        response = self._send_cmd(f"GET_PRICE|{symbol}")
+        result = self._parse_response(response)
+        parts = result["data"].split(",")
+        return {
+            "bid": float(parts[0]),
+            "ask": float(parts[1]),
+            "spread": float(parts[2]),
+        }
+
+    def get_server_time(self) -> str:
+        """Get current MT4 server time.
+
+        Returns:
+            Datetime string from MT4 server (e.g. "2024.01.15 14:30:00")
+        """
+        response = self._send_cmd("GET_TIME")
+        result = self._parse_response(response)
+        return result["data"]
+
     def close_connection(self):
         """Cleanup (no-op for file-based bridge)."""
         logger.info("MT4 bridge closed")

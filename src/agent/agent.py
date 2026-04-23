@@ -96,7 +96,8 @@ class AurumAgent:
             logger.info(f"Cycle {session_id}: Turn {turn}")
 
             # Build analysis prompt
-            analysis_prompt = self._build_analysis_prompt()
+            market_context = self._get_market_context()
+            analysis_prompt = self._build_analysis_prompt(market_context)
 
             # Get session history (all previous turns in this cycle)
             history = self.storage.get_session_history(session_id)
@@ -383,18 +384,84 @@ class AurumAgent:
             )
             return True
 
-    def _build_analysis_prompt(self) -> str:
+    def _get_market_context(self) -> dict:
+        """Query MT4 for current market state. Failures return None/empty gracefully."""
+        context = {}
+
+        try:
+            context["positions"] = self.mt4_bridge.get_positions()
+        except Exception as e:
+            logger.warning(f"get_positions failed: {e}")
+            context["positions"] = []
+
+        try:
+            context["account"] = self.mt4_bridge.get_account()
+        except Exception as e:
+            logger.warning(f"get_account failed: {e}")
+            context["account"] = None
+
+        try:
+            context["price"] = self.mt4_bridge.get_price("XAUUSD")
+        except Exception as e:
+            logger.warning(f"get_price failed: {e}")
+            context["price"] = None
+
+        try:
+            context["server_time"] = self.mt4_bridge.get_server_time()
+        except Exception as e:
+            logger.warning(f"get_server_time failed: {e}")
+            context["server_time"] = None
+
+        return context
+
+    def _build_analysis_prompt(self, market_context: dict) -> str:
         """Build the prompt for Claude to analyze the current chart."""
-        return """Analyze the chart screenshot above and decide your next action.
+        lines = ["## Current Market Context"]
+
+        account = market_context.get("account")
+        if account:
+            lines.append(
+                f"Balance: {account['balance']:.2f} {account['currency']} | "
+                f"Equity: {account['equity']:.2f} | "
+                f"Free Margin: {account['free_margin']:.2f}"
+            )
+
+        price = market_context.get("price")
+        if price:
+            lines.append(
+                f"Bid: {price['bid']:.5f} | Ask: {price['ask']:.5f} | "
+                f"Spread: {price['spread']:.1f} pts"
+            )
+
+        server_time = market_context.get("server_time")
+        if server_time:
+            lines.append(f"Server Time: {server_time}")
+
+        positions = market_context.get("positions", [])
+        if positions:
+            lines.append(f"\nOpen Positions ({len(positions)}):")
+            for p in positions:
+                lines.append(
+                    f"  #{p['ticket']} {p['type']} {p['lots']} lot @ {p['open_price']:.5f} | "
+                    f"SL: {p['sl']:.5f} | TP: {p['tp']:.5f} | P&L: {p['profit']:+.2f}"
+                )
+        else:
+            lines.append("Open Positions: None")
+
+        lines.append("""
+## Chart Analysis
+Analyze the chart screenshot and decide your next action.
 
 Look for:
 - Support and resistance levels
 - Trend direction and strength
 - Momentum indicators (if visible)
 - Entry and exit points
-- Risk/reward ratios
+- Risk/reward ratios (minimum 1:2)
 
-Then respond with ONE of these actions:
+Use the market context above when sizing positions and setting SL/TP.
+
+Respond with ONE of these actions:
 - BUY: Open a long position with specific lots, SL, TP
 - SELL: Open a short position with specific lots, SL, TP
 - CLOSE: Close an open position (provide ticket number)
@@ -402,5 +469,6 @@ Then respond with ONE of these actions:
 - CHANGE_TIMEFRAME: Request a different timeframe to confirm signal (provide timeframe)
 - DONE: No high-confidence setup found, wait for next cycle
 
-IMPORTANT: Respond with ONLY a JSON object, no other text.
-"""
+IMPORTANT: Respond with ONLY a JSON object, no other text.""")
+
+        return "\n".join(lines)

@@ -17,6 +17,7 @@
 #define SOL_SOCKET 0xffff
 #define SO_REUSEADDR 4
 #define SOMAXCONN 5
+#define FIONBIO 0x8004667E
 
 // Global socket handles
 int g_server_socket = INVALID_SOCKET;
@@ -38,6 +39,10 @@ string g_recv_buffer = "";
    int setsockopt(int sock, int level, int optname, uchar &optval[], int optlen);
    int ioctlsocket(int sock, uint cmd, uint &arg);
 #import
+#import "ws2_32.dll"
+   int WSAGetLastError();
+#import
+#define WSAEWOULDBLOCK 10035
 
 //+------------------------------------------------------------------+
 // sockaddr_in structure for IPv4
@@ -89,6 +94,10 @@ int OnInit()
       Print("[AURUM] Failed to create socket");
       return INIT_FAILED;
    }
+
+   // Set non-blocking mode so accept/recv don't freeze MT4's main thread
+   uint nb = 1;
+   ioctlsocket(g_server_socket, FIONBIO, nb);
 
    // Set SO_REUSEADDR
    uint reuse = 1;
@@ -149,6 +158,8 @@ void OnTimer()
       int addrlen = 16;
       int new_socket = accept(g_server_socket, addr_bytes, addrlen);
       if (new_socket != INVALID_SOCKET) {
+         uint nb = 1;
+         ioctlsocket(new_socket, FIONBIO, nb);
          g_client_socket = new_socket;
          Print("[AURUM] Client connected");
       }
@@ -159,8 +170,15 @@ void OnTimer()
    uchar buf[1024];
    int bytes = recv(g_client_socket, buf, sizeof(buf), 0);
 
-   if (bytes == SOCKET_ERROR || bytes == 0) {
-      // Client disconnected
+   if (bytes == SOCKET_ERROR) {
+      if (WSAGetLastError() == WSAEWOULDBLOCK) return; // no data yet, not a disconnect
+      closesocket(g_client_socket);
+      g_client_socket = INVALID_SOCKET;
+      g_recv_buffer = "";
+      Print("[AURUM] Client disconnected");
+      return;
+   }
+   if (bytes == 0) {
       closesocket(g_client_socket);
       g_client_socket = INVALID_SOCKET;
       g_recv_buffer = "";
@@ -268,6 +286,58 @@ string ProcessCommand(string raw)
       if (period == 0) return "ERROR|unknown_period";
       ChartSetSymbolPeriod(0, sym, period);
       return "OK|timeframe_sent";
+   }
+
+   //--- GET_POSITIONS
+   if (cmd == "GET_POSITIONS") {
+      string result = "";
+      int count = 0;
+      for (int i = OrdersTotal() - 1; i >= 0; i--) {
+         if (!OrderSelect(i, SELECT_BY_POS)) continue;
+         if (OrderMagicNumber() != MAGIC_NUMBER) continue;
+         if (OrderType() != OP_BUY && OrderType() != OP_SELL) continue;
+         string type_str = (OrderType() == OP_BUY) ? "BUY" : "SELL";
+         string pos = IntegerToString(OrderTicket()) + "," +
+                      type_str + "," +
+                      OrderSymbol() + "," +
+                      DoubleToString(OrderLots(), 2) + "," +
+                      DoubleToString(OrderOpenPrice(), 5) + "," +
+                      DoubleToString(OrderStopLoss(), 5) + "," +
+                      DoubleToString(OrderTakeProfit(), 5) + "," +
+                      DoubleToString(OrderProfit(), 2);
+         if (count > 0) result += ";";
+         result += pos;
+         count++;
+      }
+      return "OK|" + result;
+   }
+
+   //--- GET_ACCOUNT
+   if (cmd == "GET_ACCOUNT") {
+      string result = DoubleToString(AccountBalance(), 2) + "," +
+                      DoubleToString(AccountEquity(), 2) + "," +
+                      DoubleToString(AccountFreeMargin(), 2) + "," +
+                      AccountCurrency();
+      return "OK|" + result;
+   }
+
+   //--- GET_PRICE
+   if (cmd == "GET_PRICE") {
+      if (n < 2) return "ERROR|missing_symbol";
+      string sym = parts[1];
+      double bid    = MarketInfo(sym, MODE_BID);
+      double ask    = MarketInfo(sym, MODE_ASK);
+      double spread = ask - bid;
+      string result = DoubleToString(bid, 5) + "," +
+                      DoubleToString(ask, 5) + "," +
+                      DoubleToString(spread, 5);
+      return "OK|" + result;
+   }
+
+   //--- GET_TIME
+   if (cmd == "GET_TIME") {
+      datetime t = TimeCurrent();
+      return "OK|" + TimeToString(t, TIME_DATE|TIME_MINUTES|TIME_SECONDS);
    }
 
    return "ERROR|unknown_command";
