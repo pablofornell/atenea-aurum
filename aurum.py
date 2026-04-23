@@ -3,6 +3,7 @@
 import logging
 import sys
 import uuid
+from logging.handlers import RotatingFileHandler
 
 from src.mt4.bridge import MT4Bridge, MT4BridgeError
 from src.db.storage import SessionStorage
@@ -10,6 +11,7 @@ from src.agent.agent import AurumAgent
 from src.agent.feedback_logger import FeedbackLogger
 from src.agent.session_reporter import generate_report
 from src.ui.tui import AurumTUI, TUILogHandler
+from src.risk.config import RiskConfig
 
 
 def _configure_logging(tui: AurumTUI) -> None:
@@ -18,7 +20,12 @@ def _configure_logging(tui: AurumTUI) -> None:
     root.setLevel(logging.INFO)
     root.handlers.clear()
 
-    fh = logging.FileHandler("logs/aurum.log")
+    fh = RotatingFileHandler(
+        "logs/aurum.log",
+        maxBytes=10 * 1024 * 1024,  # 10 MB
+        backupCount=5,
+        encoding="utf-8",
+    )
     fh.setFormatter(logging.Formatter(
         "[%(asctime)s] %(name)s — %(levelname)s — %(message)s"
     ))
@@ -79,6 +86,8 @@ def main() -> int:
                 feedback_logger=flog,
                 cycle_interval=900,
                 tui=tui,
+                risk_config=RiskConfig(),
+                run_id=run_id,
             )
             tui.log("Agente inicializado — ciclo: 15 min / 5 min c/ posición")
             agent.run()

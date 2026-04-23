@@ -77,6 +77,26 @@ class SessionStorage:
                 )
             """)
 
+            # Cycle-level decision memory (persists across cycles for context injection)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS cycle_decisions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    cycle_num INTEGER NOT NULL,
+                    action TEXT NOT NULL,
+                    reasoning TEXT,
+                    price REAL,
+                    sl REAL,
+                    tp REAL,
+                    lots REAL,
+                    atr REAL,
+                    session_name TEXT,
+                    pnl_at_decision REAL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
             self.conn.commit()
             logger.info(f"Database initialized: {self.db_path}")
         except sqlite3.Error as e:
@@ -231,6 +251,51 @@ class SessionStorage:
             return [dict(row) for row in rows]
         except sqlite3.Error as e:
             raise StorageError(f"Failed to fetch order log: {e}")
+
+    def save_cycle_decision(
+        self,
+        run_id: str,
+        session_id: str,
+        cycle_num: int,
+        action: str,
+        reasoning: str = "",
+        price: Optional[float] = None,
+        sl: Optional[float] = None,
+        tp: Optional[float] = None,
+        lots: Optional[float] = None,
+        atr: Optional[float] = None,
+        session_name: str = "",
+        pnl_at_decision: Optional[float] = None,
+    ) -> None:
+        """Persist a cycle decision for cross-cycle memory injection."""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                INSERT INTO cycle_decisions
+                (run_id, session_id, cycle_num, action, reasoning, price, sl, tp, lots, atr, session_name, pnl_at_decision)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (run_id, session_id, cycle_num, action, reasoning, price, sl, tp, lots, atr, session_name, pnl_at_decision))
+            self.conn.commit()
+        except sqlite3.Error as e:
+            raise StorageError(f"Failed to save cycle decision: {e}")
+
+    def get_recent_cycle_decisions(self, run_id: str, n: int = 5) -> List[Dict[str, Any]]:
+        """Retrieve the most recent N cycle decisions for this run (cross-cycle memory)."""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                SELECT cycle_num, action, reasoning, price, sl, tp, lots, atr, session_name, pnl_at_decision, created_at
+                FROM cycle_decisions
+                WHERE run_id = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+            """, (run_id, n))
+            rows = cursor.fetchall()
+            result = [dict(row) for row in rows]
+            result.reverse()  # chronological order for prompt injection
+            return result
+        except sqlite3.Error as e:
+            raise StorageError(f"Failed to fetch cycle decisions: {e}")
 
     def close(self):
         """Close database connection."""

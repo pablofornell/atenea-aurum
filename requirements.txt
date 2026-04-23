@@ -1,4 +1,5 @@
-pytest
-pywin32
-Pillow
-rich
+rich>=13.0,<14
+Pillow>=10.0,<12
+pywin32>=306
+pytest>=8.0,<9
+pytest-mock>=3.12

@@ -109,10 +109,10 @@ def call_claude(
             }
 
     except subprocess.TimeoutExpired:
-        logger.error("Claude CLI call timed out")
+        logger.error("Claude CLI call timed out after 120 seconds")
         return {
             "ok": False,
-            "error": "Claude CLI call timed out after 60 seconds"
+            "error": "Claude CLI call timed out after 120 seconds"
         }
     except Exception as e:
         logger.error(f"Unexpected error calling Claude: {e}")

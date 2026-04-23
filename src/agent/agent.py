@@ -10,6 +10,13 @@ from src.bridge.claude_bridge import call_claude
 from src.db.storage import SessionStorage
 from src.agent.prompts import SYSTEM_PROMPT
 from src.agent.feedback_logger import FeedbackLogger
+from src.risk.config import RiskConfig
+from src.risk.validator import OrderValidator
+from src.risk.circuit_breaker import CircuitBreaker
+from src.risk.position_sizer import calculate_lots
+from src.risk.trade_manager import TradeManager
+from src.agent.filters import EntryFilters
+from src.agent.memory import CycleMemory
 
 if TYPE_CHECKING:
     from src.ui.tui import AurumTUI
@@ -27,6 +34,8 @@ class AurumAgent:
         feedback_logger: Optional[FeedbackLogger] = None,
         cycle_interval: int = 900,
         tui: Optional["AurumTUI"] = None,
+        risk_config: Optional[RiskConfig] = None,
+        run_id: str = "",
     ):
         self.mt4_bridge = mt4_bridge
         self.storage = storage
@@ -34,6 +43,16 @@ class AurumAgent:
         self.cycle_interval = cycle_interval
         self.tui = tui
         self.running = False
+        self.run_id = run_id
+
+        cfg = risk_config or RiskConfig()
+        self.risk_config = cfg
+        self.validator = OrderValidator(cfg)
+        self.circuit_breaker = CircuitBreaker(cfg)
+        self.trade_manager = TradeManager(cfg)
+        self.filters = EntryFilters()
+        self.memory = CycleMemory(storage)
+        self._current_market_context: dict = {}
 
     # ------------------------------------------------------------------
     # Main loop
@@ -50,6 +69,8 @@ class AurumAgent:
         total_cycles = 0
         total_errors = 0
         start_account = self._safe_account()
+        if start_account:
+            self.circuit_breaker.initialize(start_account.get("balance", 0.0))
 
         try:
             while self.running:
@@ -181,10 +202,60 @@ class AurumAgent:
                     return
                 market_context = self._get_market_context()
 
+            # ── Store context for validators and circuit breaker ────────────
+            self._current_market_context = market_context
+
+            # ── Circuit breaker check ───────────────────────────────────────
+            account_cb = market_context.get("account") or {}
+            equity_cb = account_cb.get("equity", 0.0)
+            can_trade, cb_reason = self.circuit_breaker.check(equity_cb)
+            if not can_trade:
+                logger.critical(f"Circuit breaker halted cycle: {cb_reason}")
+                if self.tui:
+                    self.tui.set_status(f"CIRCUIT BREAKER ACTIVO", cycle=cycle_num)
+                if self.flog:
+                    self.flog.error("circuit_breaker", cb_reason,
+                                    session_id=session_id, turn=turn)
+                self.storage.save_turn(session_id=session_id, role="system",
+                                       content=f"Circuit breaker active: {cb_reason}")
+                return
+
+            # ── Auto trade management (runs every cycle with open position) ─
+            positions_now = market_context.get("positions", [])
+            trade_mgr_notes = ""
+            if positions_now:
+                _, trade_mgr_notes = self.trade_manager.check_and_update(
+                    positions_now, market_context, self.mt4_bridge,
+                    flog=self.flog, session_id=session_id,
+                )
+
+            # ── Entry filters (only when flat — no open position) ───────────
+            if not positions_now:
+                session_name_f = self._trading_session(
+                    market_context.get("server_time", "")
+                )
+                ok_f, filter_failures = self.filters.all_pass(
+                    market_context, session_name_f, self.risk_config
+                )
+                if not ok_f:
+                    reasons = "; ".join(filter_failures)
+                    logger.info(f"Entry filters blocked new entry: {reasons}")
+                    if self.flog:
+                        self.flog.error("entry_filter_blocked", reasons,
+                                        session_id=session_id, turn=turn)
+                    self.storage.save_turn(session_id=session_id, role="system",
+                                           content=f"Entry filters blocked: {reasons}")
+                    self.memory.save(
+                        self.run_id, session_id, cycle_num,
+                        {"action": "DONE", "reasoning": f"Filter blocked: {reasons}"},
+                        market_context,
+                    )
+                    return
+
             if self.flog:
                 self.flog.market_context(session_id, turn, market_context)
 
-            analysis_prompt = self._build_analysis_prompt(market_context)
+            analysis_prompt = self._build_analysis_prompt(market_context, trade_mgr_notes=trade_mgr_notes)
             history = self.storage.get_session_history(session_id)
 
             if self.tui:
@@ -240,6 +311,12 @@ class AurumAgent:
                 screenshot_path=screenshot_path,
                 timeframe=current_timeframe
             )
+
+            # Save cycle decision to cross-cycle memory
+            if action:
+                self.memory.save(
+                    self.run_id, session_id, cycle_num, action, market_context
+                )
 
             if not action:
                 logger.warning(f"Invalid action from Claude: {raw_response}")
@@ -339,18 +416,36 @@ class AurumAgent:
             return self._place_order("SELL", action, session_id, turn, reasoning)
 
         elif action_type == "CLOSE":
+            ok_v, reason_v = self.validator.validate_close(action)
+            if not ok_v:
+                logger.warning(f"CLOSE rejected: {reason_v}")
+                self.storage.save_turn(session_id=session_id, role="system",
+                                       content=f"CLOSE rejected: {reason_v}")
+                if self.flog:
+                    self.flog.error("validator_rejected", reason_v,
+                                    session_id=session_id, turn=turn)
+                return True
             ticket = action.get("ticket")
+            # Capture last-known P&L for circuit breaker before close
+            last_pnl = 0.0
+            for p in self._current_market_context.get("positions", []):
+                if p.get("ticket") == ticket:
+                    last_pnl = p.get("profit", 0.0)
+                    break
             try:
                 self.mt4_bridge.close(ticket)
+                self.circuit_breaker.record_trade(last_pnl)
                 self.storage.log_order(session_id=session_id, action="CLOSE",
                                        symbol="XAUUSD", lots=0, sl=0, tp=0,
                                        ticket=ticket, result="OK")
-                logger.info(f"Position closed: ticket={ticket}")
-                self.storage.save_turn(session_id=session_id, role="system",
-                                       content=f"Position closed (ticket={ticket})")
+                logger.info(f"Position closed: ticket={ticket}, pnl={last_pnl:+.2f}")
+                self.storage.save_turn(
+                    session_id=session_id, role="system",
+                    content=f"Position closed (ticket={ticket}, pnl={last_pnl:+.2f})"
+                )
                 if self.flog:
                     self.flog.action_result(session_id, turn, "CLOSE", ok=True,
-                                            detail={"ticket": ticket})
+                                            detail={"ticket": ticket, "pnl": last_pnl})
             except Exception as e:
                 logger.error(f"Close order failed: {e}")
                 self.storage.save_turn(session_id=session_id, role="system",
@@ -362,6 +457,15 @@ class AurumAgent:
             return True
 
         elif action_type == "MODIFY":
+            ok_v, reason_v = self.validator.validate_modify(action)
+            if not ok_v:
+                logger.warning(f"MODIFY rejected: {reason_v}")
+                self.storage.save_turn(session_id=session_id, role="system",
+                                       content=f"MODIFY rejected: {reason_v}")
+                if self.flog:
+                    self.flog.error("validator_rejected", reason_v,
+                                    session_id=session_id, turn=turn)
+                return True
             ticket = action.get("ticket")
             sl = action.get("sl")
             tp = action.get("tp")
@@ -436,6 +540,25 @@ class AurumAgent:
                                                     "open_tickets": tickets})
                     self.flog.error("duplicate_position", msg,
                                     context={"open_tickets": tickets},
+                                    session_id=session_id, turn=turn)
+                return True
+
+            # Validate order through risk module before sending to MT4
+            acct = self._current_market_context.get("account") or {}
+            balance_v = acct.get("balance", 0.0)
+            ok_v, reason_v = self.validator.validate_order(
+                action, self._current_market_context, balance_v
+            )
+            if not ok_v:
+                msg = f"{side} rejected by validator: {reason_v}"
+                logger.warning(msg)
+                self.storage.save_turn(session_id=session_id, role="system", content=msg)
+                if self.flog:
+                    self.flog.action_result(session_id, turn, side, ok=False,
+                                            detail={"reason": "validator_rejected",
+                                                    "detail": reason_v})
+                    self.flog.error("validator_rejected", reason_v,
+                                    context={"side": side},
                                     session_id=session_id, turn=turn)
                 return True
 
@@ -553,7 +676,7 @@ class AurumAgent:
             return "New York (moderate-high volatility — continuation or reversal setups)"
         return "Late NY / Pre-Asia (low volatility — avoid new entries)"
 
-    def _build_analysis_prompt(self, market_context: dict) -> str:
+    def _build_analysis_prompt(self, market_context: dict, trade_mgr_notes: str = "") -> str:
         """Build the prompt for Claude to analyze the current chart."""
         lines = ["## Current Market Context"]
 
@@ -615,27 +738,37 @@ class AurumAgent:
         else:
             lines.append("\nOpen Positions: None")
 
+        # ── Recent cycle history (cross-cycle memory) ───────────────────────
+        history_str = self.memory.get_formatted(self.run_id)
+        if history_str:
+            lines.append(f"\n{history_str}")
+
+        # ── Suggested position size ─────────────────────────────────────────
+        account_ps = market_context.get("account") or {}
+        balance_ps = account_ps.get("balance", 0.0)
+        atr_ps = market_context.get("atr")
+        if balance_ps > 0 and atr_ps and atr_ps > 0:
+            suggested_lots = calculate_lots(balance_ps, atr_ps, self.risk_config)
+            lines.append(
+                f"\n## Suggested Position Size\n"
+                f"  Account: ${balance_ps:.0f} | Risk: {self.risk_config.risk_per_trade_pct:.1f}%"
+                f" | SL ref (1×ATR={atr_ps:.1f}pts) → **{suggested_lots:.2f} lots**\n"
+                f"  (Scale proportionally for tighter/wider SL)"
+            )
+
+        # ── Auto trade management notes ─────────────────────────────────────
+        if trade_mgr_notes:
+            lines.append(
+                f"\n## Auto Trade Management Applied This Cycle\n  {trade_mgr_notes}\n"
+                f"  → The system has already adjusted the SL. Factor this into your analysis."
+            )
+
         lines.append("""
 ## Chart Analysis
-Analyze the chart screenshot together with the numerical context above and decide your next action.
+Using your SMC 7-step framework: HTF bias → session filter → LTF structure → POI → liquidity → entry → R/R check.
+Use the Suggested Position Size above. Minimum R/R = 1.5 (orders below this are rejected by the system).
 
-Look for:
-- Confluence between price action and the Key Daily/Weekly Levels listed above
-- Trend direction and strength relative to PDC (previous day close) bias
-- Momentum indicators visible on chart (RSI, EMAs)
-- Entry and exit points with SL sized using the ATR buffer suggested above
-- Risk/reward ratios (minimum 1:2); TP should be the next key level
-
-Use the market context above when sizing positions and setting SL/TP.
-
-Respond with ONE of these actions:
-- BUY: Open a long position with specific lots, SL, TP
-- SELL: Open a short position with specific lots, SL, TP
-- CLOSE: Close an open position (provide ticket number)
-- MODIFY: Adjust SL/TP on open position (provide ticket, new SL, new TP)
-- CHANGE_TIMEFRAME: Request a different timeframe to confirm signal (provide timeframe)
-- DONE: No high-confidence setup found, wait for next cycle
-
+Respond with ONE action: BUY, SELL, CLOSE, MODIFY, CHANGE_TIMEFRAME, or DONE.
 IMPORTANT: Respond with ONLY a JSON object, no other text.""")
 
         return "\n".join(lines)
