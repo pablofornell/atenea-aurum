@@ -354,12 +354,14 @@ string ProcessCommand(string raw)
       return "OK|" + DoubleToString(stop_level * point, 5);
    }
 
-   //--- GET_ATR  GET_ATR|XAUUSD|14
+   //--- GET_ATR  GET_ATR|XAUUSD|14|H1
    if (cmd == "GET_ATR") {
       if (n < 3) return "ERROR|missing_params";
       string sym    = parts[1];
       int    period = (int)StringToInteger(parts[2]);
-      double atr    = iATR(sym, 0, period, 1);
+      int    tf     = (n >= 4) ? PeriodFromString(parts[3]) : PERIOD_H1;
+      if (tf == 0) tf = PERIOD_H1;
+      double atr    = iATR(sym, tf, period, 1);
       if (atr <= 0) return "ERROR|atr_unavailable";
       return "OK|" + DoubleToString(atr, 5);
    }

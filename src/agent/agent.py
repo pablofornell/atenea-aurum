@@ -165,13 +165,25 @@ class AurumAgent:
             return None
 
     def _current_interval(self) -> int:
-        """5 min if a position is open, 15 min if flat."""
+        """5 min with position; session-aware when flat."""
         try:
             if self.mt4_bridge.get_positions():
                 return 300
         except Exception:
             pass
-        return self.cycle_interval
+
+        server_time = None
+        try:
+            server_time = self.mt4_bridge.get_server_time()
+        except Exception:
+            pass
+
+        session = self._trading_session(server_time or "")
+        if "London Open" in session or "London/NY Overlap" in session:
+            return 300   # Kill Zones: 5 min — fast institutional moves
+        if "London" in session or "New York" in session:
+            return 600   # Active non-KZ sessions: 10 min
+        return 1800      # Asia / Late NY: 30 min — filters block anyway
 
     # ------------------------------------------------------------------
     # Cycle
@@ -198,7 +210,7 @@ class AurumAgent:
         if self.flog:
             self.flog.screenshot(session_id, turn=0, path=screenshot_path)
 
-        current_timeframe = "H1"
+        current_timeframe = "H4"
         turn = 0
         max_turns = 10
 
@@ -672,7 +684,7 @@ class AurumAgent:
             context["server_time"] = None
 
         try:
-            context["atr"] = self.mt4_bridge.get_atr("XAUUSD", 14)
+            context["atr"] = self.mt4_bridge.get_atr("XAUUSD", 14, timeframe="H1")
         except Exception as e:
             logger.warning(f"get_atr failed: {e}")
             context["atr"] = None

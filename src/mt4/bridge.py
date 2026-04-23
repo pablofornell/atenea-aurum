@@ -233,13 +233,16 @@ class MT4Bridge:
             "spread": float(parts[2]),
         }
 
-    def get_atr(self, symbol: str = "XAUUSD", period: int = 14) -> float:
-        """Get ATR(period) value for current bar.
+    def get_atr(self, symbol: str = "XAUUSD", period: int = 14, timeframe: str = "H1") -> float:
+        """Get ATR(period) value for a specific timeframe.
+
+        Args:
+            timeframe: Chart timeframe (M1, M5, M15, M30, H1, H4, D1). Defaults to H1.
 
         Returns:
             ATR value in price units (e.g. 18.40 for gold).
         """
-        response = self._send_cmd(f"GET_ATR|{symbol}|{period}")
+        response = self._send_cmd(f"GET_ATR|{symbol}|{period}|{timeframe}")
         result = self._parse_response(response)
         return float(result["data"])
 
