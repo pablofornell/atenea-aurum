@@ -8,6 +8,7 @@ from typing import Optional, List, Dict, Any
 logger = logging.getLogger(__name__)
 
 REPO_DIR = Path(__file__).resolve().parents[2]
+STRATEGY_DIR = REPO_DIR / "strategy"
 
 
 class ClaudeError(Exception):
@@ -57,7 +58,7 @@ def call_claude(
             capture_output=True,
             text=True,
             encoding='utf-8',
-            cwd=str(REPO_DIR),
+            cwd=str(STRATEGY_DIR),
             timeout=120,  # 120 second timeout
         )
 
