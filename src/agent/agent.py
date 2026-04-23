@@ -2,7 +2,7 @@
 import time
 import logging
 import uuid
-from typing import Optional, Dict, Any
+from typing import TYPE_CHECKING, Optional, Dict, Any
 
 from src.mt4.bridge import MT4Bridge, MT4BridgeError
 from src.mt4.screenshot import capture_mt4, ScreenshotError
@@ -10,6 +10,9 @@ from src.bridge.claude_bridge import call_claude
 from src.db.storage import SessionStorage
 from src.agent.prompts import SYSTEM_PROMPT
 from src.agent.feedback_logger import FeedbackLogger
+
+if TYPE_CHECKING:
+    from src.ui.tui import AurumTUI
 
 logger = logging.getLogger(__name__)
 
@@ -23,11 +26,13 @@ class AurumAgent:
         storage: SessionStorage,
         feedback_logger: Optional[FeedbackLogger] = None,
         cycle_interval: int = 900,
+        tui: Optional["AurumTUI"] = None,
     ):
         self.mt4_bridge = mt4_bridge
         self.storage = storage
         self.flog = feedback_logger
         self.cycle_interval = cycle_interval
+        self.tui = tui
         self.running = False
 
     # ------------------------------------------------------------------
@@ -49,16 +54,18 @@ class AurumAgent:
         try:
             while self.running:
                 session_id = str(uuid.uuid4())
-                logger.info(f"Starting new cycle: {session_id}")
                 total_cycles += 1
+                logger.info(f"Starting cycle {total_cycles}: {session_id}")
+
+                if self.tui:
+                    self.tui.set_status("Iniciando ciclo…", cycle=total_cycles)
 
                 if self.flog:
                     self.flog.cycle_start(session_id)
 
                 cycle_start = time.time()
-                cycle_errors_before = total_errors
                 try:
-                    self.run_cycle(session_id)
+                    self.run_cycle(session_id, cycle_num=total_cycles)
                 except Exception as e:
                     logger.error(f"Cycle error: {e}", exc_info=True)
                     total_errors += 1
@@ -72,7 +79,10 @@ class AurumAgent:
                 interval = self._current_interval()
                 remaining = interval - cycle_dur
                 if remaining > 0:
-                    logger.info(f"Sleeping for {remaining:.1f}s until next cycle")
+                    logger.info(f"Sleeping {remaining:.1f}s until next cycle")
+                    if self.tui:
+                        self.tui.set_status("Esperando próximo ciclo…", cycle=total_cycles)
+                        self.tui.set_next_cycle(remaining, interval)
                     time.sleep(remaining)
 
         except KeyboardInterrupt:
@@ -109,15 +119,20 @@ class AurumAgent:
     # Cycle
     # ------------------------------------------------------------------
 
-    def run_cycle(self, session_id: str):
+    def run_cycle(self, session_id: str, cycle_num: int = 0):
         """Execute one full analysis cycle (may span multiple turns for timeframe changes)."""
         logger.info(f"Cycle {session_id}: Starting")
+
+        if self.tui:
+            self.tui.set_status("Capturando pantalla MT4…", cycle=cycle_num)
 
         try:
             screenshot_path = capture_mt4()
             logger.info(f"Screenshot captured: {screenshot_path}")
         except ScreenshotError as e:
             logger.error(f"Failed to capture MT4: {e}")
+            if self.tui:
+                self.tui.set_status("Error: captura de pantalla fallida", cycle=cycle_num)
             if self.flog:
                 self.flog.error("screenshot", str(e), session_id=session_id)
             return
@@ -133,10 +148,24 @@ class AurumAgent:
             turn += 1
             logger.info(f"Cycle {session_id}: Turn {turn}")
 
+            if self.tui:
+                self.tui.set_status("Obteniendo contexto de mercado…",
+                                    cycle=cycle_num, turn=turn, max_turns=max_turns)
+
             market_context = self._get_market_context()
+
+            if self.tui:
+                self.tui.update_account(market_context.get("account"))
+                self.tui.update_positions(market_context.get("positions", []))
+                self.tui.update_market(
+                    market_context.get("price"),
+                    market_context.get("server_time"),
+                )
 
             if self._is_connection_lost(market_context):
                 logger.warning("MT4 connection lost, attempting reconnect...")
+                if self.tui:
+                    self.tui.set_status("Reconectando a MT4…", cycle=cycle_num, turn=turn)
                 if self.flog:
                     self.flog.connection_lost(session_id=session_id, turn=turn)
                 reconnected = self.mt4_bridge.reconnect()
@@ -144,6 +173,8 @@ class AurumAgent:
                     self.flog.reconnect(reconnected, attempts=5, session_id=session_id)
                 if not reconnected:
                     logger.error("Could not reconnect to MT4, skipping cycle")
+                    if self.tui:
+                        self.tui.set_status("Error: reconexión MT4 fallida", cycle=cycle_num)
                     if self.flog:
                         self.flog.error("connection", "Reconnect failed, cycle aborted",
                                         session_id=session_id, turn=turn)
@@ -156,6 +187,9 @@ class AurumAgent:
             analysis_prompt = self._build_analysis_prompt(market_context)
             history = self.storage.get_session_history(session_id)
 
+            if self.tui:
+                self.tui.set_status("Llamando a Claude…", cycle=cycle_num, turn=turn)
+
             claude_start = time.time()
             try:
                 response = call_claude(
@@ -166,14 +200,19 @@ class AurumAgent:
                 )
             except Exception as e:
                 logger.error(f"Claude call failed: {e}")
+                if self.tui:
+                    self.tui.set_status("Error: llamada a Claude fallida", cycle=cycle_num)
                 if self.flog:
                     self.flog.error("claude_call", str(e), session_id=session_id, turn=turn)
                 return
             claude_elapsed = time.time() - claude_start
+            logger.info(f"Claude responded in {claude_elapsed:.1f}s")
 
             if not response.get("ok"):
                 err = response.get("error", "unknown")
                 logger.error(f"Claude error: {err}")
+                if self.tui:
+                    self.tui.set_status(f"Error Claude: {err[:50]}", cycle=cycle_num)
                 error_type = "timeout" if "timed out" in err else "claude_error"
                 if self.flog:
                     self.flog.error(error_type, err, session_id=session_id, turn=turn)
@@ -186,6 +225,13 @@ class AurumAgent:
 
             if self.flog and action:
                 self.flog.claude_decision(session_id, turn, action, raw_response, claude_elapsed)
+
+            if action and self.tui:
+                self.tui.set_status("Procesando decisión…", cycle=cycle_num, turn=turn)
+                self.tui.set_last_action(
+                    action.get("action", "?"),
+                    action.get("reasoning", ""),
+                )
 
             self.storage.save_turn(
                 session_id=session_id,
@@ -204,7 +250,8 @@ class AurumAgent:
                                     session_id=session_id, turn=turn)
                 return
 
-            cycle_done = self._execute_action(action, session_id, screenshot_path, turn)
+            cycle_done = self._execute_action(action, session_id, screenshot_path, turn,
+                                              cycle_num=cycle_num)
 
             if cycle_done:
                 logger.info(f"Cycle {session_id}: Complete (action={action.get('action')})")
@@ -213,6 +260,9 @@ class AurumAgent:
             if action.get("action") == "CHANGE_TIMEFRAME":
                 new_timeframe = action.get("timeframe", current_timeframe)
                 logger.info(f"Changing timeframe to {new_timeframe}")
+                if self.tui:
+                    self.tui.set_status(f"Cambiando timeframe a {new_timeframe}…",
+                                        cycle=cycle_num, turn=turn)
 
                 time.sleep(2)
                 reconnected = self.mt4_bridge.reconnect()
@@ -220,6 +270,8 @@ class AurumAgent:
                     self.flog.reconnect(reconnected, attempts=5, session_id=session_id)
                 if not reconnected:
                     logger.error("Lost MT4 connection after timeframe change, ending cycle")
+                    if self.tui:
+                        self.tui.set_status("Error: reconexión tras cambio de TF", cycle=cycle_num)
                     if self.flog:
                         self.flog.error("connection", "Reconnect failed after CHANGE_TIMEFRAME",
                                         session_id=session_id, turn=turn)
@@ -244,11 +296,13 @@ class AurumAgent:
     # ------------------------------------------------------------------
 
     def _execute_action(self, action: Dict[str, Any], session_id: str,
-                        screenshot_path: str, turn: int) -> bool:
+                        screenshot_path: str, turn: int, cycle_num: int = 0) -> bool:
         """Execute a trading action. Returns True if cycle should end."""
         action_type = action.get("action")
         reasoning = action.get("reasoning", "")
         logger.info(f"Executing action: {action_type}")
+        if self.tui:
+            self.tui.set_status(f"Ejecutando: {action_type}", cycle=cycle_num, turn=turn)
 
         if action_type == "DONE":
             logger.info("Claude finished analysis (DONE)")

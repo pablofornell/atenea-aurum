@@ -34,8 +34,8 @@ env/
 
 # Project-specific
 data/aurum.db
-logs/*.log
-logs/aurum.log
+logs/*
+!logs/.gitkeep
 tmp/
 .claude/
 *.db

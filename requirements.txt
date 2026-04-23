@@ -1,3 +1,4 @@
 pytest
 pywin32
 Pillow
+rich
