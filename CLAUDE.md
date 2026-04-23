@@ -21,19 +21,33 @@ subprocess.run(
 
 El prompt se pasa por **stdin** (no como argumento `-p`) para evitar el límite de caracteres de la terminal. `cwd=REPO_DIR` hace que Claude Code cargue este `CLAUDE.md` como identidad AURUM automáticamente. No hay API key ni SDK de Anthropic.
 
-## Workspaces
-- /planning — Specs, arquitectura, decisiones
-- /src — Código fuente (agente, bridge, estrategias)
-- /docs — Documentación
-- /ops — Despliegue y operaciones MT4
+## Directorios
+
+### Workspaces
+- **`/src`** — Código fuente
+  - `agent/` — Lógica del agente trading
+  - `bridge/` — Integración Claude y MT4
+  - `mt4/` — Conexión MetaTrader 4
+  - `db/` — Persistencia (SQLite)
+  - `strategies/` — Estrategias trading
+  - `tools/` — Scripts de utilidad y diagnóstico
+  - `tests/` — Suite de tests (unit/ e integration/)
+- **`/docs`** — Documentación (guías, testing, estructura)
+- **`/ops`** — EA, instalación, despliegue MT4
+- **`/planning`** — Specs y decisiones arquitectónicas
+- **`/data`** — Datos persistentes (aurum.db)
+- **`/logs`** — Archivos de log del sistema
 
 ## Routing
-| Tarea | Ir a | Leer | Skills |
-|-------|-------|------|--------|
-| Especificar una feature | /planning | CONTEXT.md | — |
-| Escribir código | /src | CONTEXT.md | — |
-| Documentar | /docs | CONTEXT.md | — |
-| Desplegar o depurar | /ops | CONTEXT.md | — |
+| Tarea | Carpeta | Leer | Notas |
+|-------|---------|------|-------|
+| Especificar feature | `/planning` | — | Usar: `feature-name_spec.md` |
+| Escribir código | `/src` | — | Modular por componente (agent, bridge, mt4, etc) |
+| Agregar/editar tests | `/src/tests` | — | Seguir: `test_*.py`, `/integration/` para MT4 |
+| Scripts de diagnóstico | `/src/tools` | — | Para debugging y utilidades |
+| Documentar | `/docs` | `PROJECT_STRUCTURE.md` | Guías de setup, testing, arquitectura |
+| Desplegar/depurar MT4 | `/ops` | `README.md` | Instalación EA, troubleshooting |
+| Decision records | `/planning` | — | Usar: `DD-MM-YYYY-decision.md` |
 
 ## Testing
 - Framework: `pytest`

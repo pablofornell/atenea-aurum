@@ -18,7 +18,7 @@ logging.basicConfig(
     format="[%(asctime)s] %(name)s — %(levelname)s — %(message)s",
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler("aurum.log"),
+        logging.FileHandler("logs/aurum.log"),
     ]
 )
 
@@ -49,7 +49,7 @@ def main():
     # Initialize storage
     logger.info("Initializing database...")
     try:
-        storage = SessionStorage(db_path="aurum.db")
+        storage = SessionStorage(db_path="data/aurum.db")
         logger.info("Database ready")
     except Exception as e:
         logger.error(f"Cannot initialize database: {e}")

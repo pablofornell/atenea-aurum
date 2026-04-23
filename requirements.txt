@@ -1,1 +1,3 @@
 pytest
+pywin32
+Pillow
