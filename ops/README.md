@@ -1,37 +1,37 @@
 # MT4 Setup Instructions for Aurum
 
-## One-Time Setup (TCP Sockets)
+## Quick Start
 
-The Expert Advisor runs a TCP server on `127.0.0.1:5555` using direct Winsock DLL imports (no external headers).
+The Expert Advisor runs a TCP server on `127.0.0.1:5555` using direct **Winsock DLL imports** (standalone, no external headers required).
 
-### Step 1: Copy EA to MT4 Experts Folder
+### Automated Installation
 
 ```powershell
-copy "ops\AURUM_Bridge.mq4" "C:\Program Files (x86)\NMarkets Limited MT4 Terminal\MQL4\Experts\"
+powershell -ExecutionPolicy Bypass -File ops/install_ea.ps1
 ```
 
-### Step 2: Compile in MetaEditor
+This copies `AURUM_Bridge.mq4` to your MT4 `Experts` folder automatically.
 
-1. **Ctrl+E** in MT4 (open MetaEditor)
-2. Open: `MQL4/Experts/AURUM_Bridge.mq4`
-3. Compile: **F5**
-4. Verify: "0 errors" (no external headers needed)
+### Manual Setup (if needed)
 
-### Step 3: Enable DLL Imports
+1. Copy `ops/AURUM_Bridge.mq4` → `C:\Program Files (x86)\NMarkets Limited MT4 Terminal\MQL4\Experts\`
+2. Reload MetaEditor or restart MT4
+3. Verify: Open MetaEditor and check for "0 errors" when you browse to the file
 
-In MT4:
+### Enable DLL Imports in MT4
+
 1. Tools → Options → **Expert Advisors** tab
 2. Check: **"Allow DLL imports"** ✓
-3. OK
+3. Click OK
 
-### Step 4: Attach to Chart
+### Attach EA to XAUUSD Chart
 
 1. Open **XAUUSD** chart
 2. Right-click → Expert Advisors → **Attach Expert Advisor**
 3. Select: **AURUM_Bridge** → OK
-4. Verify: Green 😊 smiley on chart
+4. Verify: Green smiley on chart (if red/none, check Experts tab for errors)
 
-### Step 5: Check Logs
+### Verify Server is Running
 
 Open MT4 **Experts** tab, you should see:
 ```
