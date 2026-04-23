@@ -2,6 +2,7 @@
 import time
 import logging
 import uuid
+from datetime import datetime
 from typing import TYPE_CHECKING, Optional, Dict, Any
 
 from src.mt4.bridge import MT4Bridge, MT4BridgeError
@@ -74,6 +75,20 @@ class AurumAgent:
 
         try:
             while self.running:
+                # ── Weekend gate ───────────────────────────────────────────────
+                server_time_now = None
+                try:
+                    server_time_now = self.mt4_bridge.get_server_time()
+                except Exception:
+                    pass
+                if self._is_weekend(server_time_now):
+                    msg = "Fin de semana — mercados cerrados. Próxima verificación en 30 min…"
+                    logger.info("Weekend detected — markets closed, sleeping 30 min")
+                    if self.tui:
+                        self.tui.set_status(msg)
+                    time.sleep(1800)
+                    continue
+
                 session_id = str(uuid.uuid4())
                 total_cycles += 1
                 logger.info(f"Starting cycle {total_cycles}: {session_id}")
@@ -104,7 +119,29 @@ class AurumAgent:
                     if self.tui:
                         self.tui.set_status("Esperando próximo ciclo…", cycle=total_cycles)
                         self.tui.set_next_cycle(remaining, interval)
-                    time.sleep(remaining)
+                    # Refresh positions/account/market every 15s while waiting
+                    _POLL_INTERVAL = 5
+                    elapsed_wait = 0.0
+                    while self.running and elapsed_wait < remaining:
+                        chunk = min(_POLL_INTERVAL, remaining - elapsed_wait)
+                        time.sleep(chunk)
+                        elapsed_wait += chunk
+                        if self.tui:
+                            try:
+                                self.tui.update_positions(self.mt4_bridge.get_positions())
+                            except Exception:
+                                pass
+                            try:
+                                self.tui.update_account(self.mt4_bridge.get_account())
+                            except Exception:
+                                pass
+                            try:
+                                self.tui.update_market(
+                                    self.mt4_bridge.get_price("XAUUSD"),
+                                    self.mt4_bridge.get_server_time(),
+                                )
+                            except Exception:
+                                pass
 
         except KeyboardInterrupt:
             logger.info("Agent stopped by user (Ctrl+C)")
@@ -653,6 +690,17 @@ class AurumAgent:
             context["week_hl"] = None
 
         return context
+
+    @staticmethod
+    def _is_weekend(server_time_str: Optional[str]) -> bool:
+        """Returns True if MT4 server time falls on Saturday or Sunday."""
+        if not server_time_str:
+            return False
+        try:
+            dt = datetime.strptime(server_time_str, "%Y.%m.%d %H:%M:%S")
+            return dt.weekday() >= 5  # 5=Saturday, 6=Sunday
+        except (ValueError, TypeError):
+            return False
 
     @staticmethod
     def _trading_session(server_time: str) -> str:
