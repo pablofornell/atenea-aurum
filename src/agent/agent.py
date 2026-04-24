@@ -155,6 +155,10 @@ class AurumAgent:
 
                 interval = self._current_interval()
                 remaining = interval - cycle_dur
+                # After a timeout the subprocess already consumed ~180s; cap wait at 60s
+                # so we don't miss the next Kill Zone window (e.g. NY KZ starts at :30).
+                if cycle_result == "timeout":
+                    remaining = min(remaining, 60)
                 if remaining > 0:
                     logger.info(f"Sleeping {remaining:.1f}s until next cycle")
                     if self.tui:
@@ -343,12 +347,29 @@ class AurumAgent:
                     flog=self.flog, session_id=session_id,
                 )
 
-            # ── Entry filters (only when flat — no open position) ───────────
+            # ── Session gate (only when flat — no open position) ────────────
+            # Skip the Claude call entirely for dead sessions — the answer is always
+            # DONE and calling the LLM wastes ~60-120s per cycle.
             if not positions_now:
                 session_name_f = self._trading_session(
                     market_context.get("server_time", ""),
                     self.risk_config.broker_gmt_offset,
                 )
+                _DEAD_SESSIONS = ("Asia", "Late NY")
+                if any(session_name_f.startswith(s) for s in _DEAD_SESSIONS):
+                    reason = f"Dead session ({session_name_f}) — no entries allowed"
+                    logger.info(f"Session gate: {reason}")
+                    if self.flog:
+                        self.flog.error("entry_filter_blocked", reason,
+                                        session_id=session_id, turn=turn)
+                    self.memory.save(
+                        self.run_id, session_id, cycle_num,
+                        {"action": "DONE", "reasoning": reason},
+                        market_context,
+                    )
+                    return "done"
+
+                # ATR / spread filters
                 ok_f, filter_failures = self.filters.all_pass(
                     market_context, session_name_f, self.risk_config
                 )

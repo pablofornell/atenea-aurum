@@ -65,7 +65,7 @@ def call_claude(
             text=True,
             encoding='utf-8',
             cwd=str(STRATEGY_DIR),
-            timeout=120,  # 120 second timeout
+            timeout=120,  # 120s — Turn 1: ~60-90s (Read PNG + analysis). Multi-turn: no re-reads now.
         )
 
         if result.returncode != 0:
@@ -143,12 +143,16 @@ def _build_prompt(
     parts = []
 
     # 1. Session history (if any)
+    # NOTE: screenshot_path is intentionally omitted from history turns.
+    # Passing old PNG paths causes Claude to re-read every previous screenshot via
+    # its Read tool, adding one API round-trip per historical turn. The text content
+    # of each turn already contains Claude's analysis — re-reading the image adds no
+    # new information and inflates response time by 30-60s per historical turn.
     if session_history:
         parts.append("## Previous Analysis in This Session\n")
         for i, turn in enumerate(session_history, 1):
             role = turn.get("role", "unknown")
             content = turn.get("content", "")
-            screenshot = turn.get("screenshot_path", "")
             timeframe = turn.get("timeframe", "")
 
             parts.append(f"\n### Turn {i} ({role.upper()})")
@@ -156,8 +160,6 @@ def _build_prompt(
                 parts.append(f" — {timeframe}")
             parts.append("\n")
 
-            if screenshot:
-                parts.append(f"Screenshot: {screenshot}\n")
             if content:
                 parts.append(f"{content}\n")
 
