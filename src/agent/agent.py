@@ -54,6 +54,7 @@ class AurumAgent:
         self.filters = EntryFilters()
         self.memory = CycleMemory(storage)
         self._current_market_context: dict = {}
+        self._last_cb_reset_date: Optional[str] = None
 
     # ------------------------------------------------------------------
     # Main loop
@@ -88,6 +89,22 @@ class AurumAgent:
                         self.tui.set_status(msg)
                     time.sleep(1800)
                     continue
+
+                # ── Daily circuit breaker reset ────────────────────────────────
+                if server_time_now:
+                    today = server_time_now[:10]  # "YYYY.MM.DD"
+                    if self._last_cb_reset_date is None:
+                        self._last_cb_reset_date = today
+                    elif today != self._last_cb_reset_date:
+                        logger.info(f"New trading day ({today}) — resetting circuit breaker")
+                        fresh_acct = self._safe_account()
+                        if fresh_acct:
+                            self.circuit_breaker.initialize(fresh_acct.get("balance", 0.0))
+                        else:
+                            self.circuit_breaker.reset()
+                        self._last_cb_reset_date = today
+                        if self.tui:
+                            self.tui.set_status(f"Nuevo día ({today}) — circuit breaker reiniciado")
 
                 session_id = str(uuid.uuid4())
                 total_cycles += 1
@@ -193,6 +210,14 @@ class AurumAgent:
         """Execute one full analysis cycle (may span multiple turns for timeframe changes)."""
         logger.info(f"Cycle {session_id}: Starting")
 
+        # Ensure chart is on H1 before capturing — the primary SMC analysis timeframe
+        try:
+            self.mt4_bridge.set_timeframe("XAUUSD", "H1")
+            time.sleep(0.5)  # allow MT4 to refresh chart before screenshot
+        except Exception as e:
+            logger.warning(f"Could not set H1 at cycle start: {e}")
+        current_timeframe = "H1"
+
         if self.tui:
             self.tui.set_status("Capturando pantalla MT4…", cycle=cycle_num)
 
@@ -209,13 +234,6 @@ class AurumAgent:
 
         if self.flog:
             self.flog.screenshot(session_id, turn=0, path=screenshot_path)
-
-        # Ensure chart is on H1 at cycle start — the primary SMC analysis timeframe
-        try:
-            self.mt4_bridge.set_timeframe("XAUUSD", "H1")
-        except Exception as e:
-            logger.warning(f"Could not set H1 at cycle start: {e}")
-        current_timeframe = "H1"
         turn = 0
         max_turns = 10
 
