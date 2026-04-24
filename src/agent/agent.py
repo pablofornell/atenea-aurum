@@ -195,7 +195,7 @@ class AurumAgent:
         except Exception:
             pass
 
-        session = self._trading_session(server_time or "")
+        session = self._trading_session(server_time or "", self.risk_config.broker_gmt_offset)
         if "London Open" in session or "London/NY Overlap" in session:
             return 300   # Kill Zones: 5 min — fast institutional moves
         if "London" in session or "New York" in session:
@@ -304,7 +304,8 @@ class AurumAgent:
             # ── Entry filters (only when flat — no open position) ───────────
             if not positions_now:
                 session_name_f = self._trading_session(
-                    market_context.get("server_time", "")
+                    market_context.get("server_time", ""),
+                    self.risk_config.broker_gmt_offset,
                 )
                 ok_f, filter_failures = self.filters.all_pass(
                     market_context, session_name_f, self.risk_config
@@ -738,15 +739,16 @@ class AurumAgent:
             return False
 
     @staticmethod
-    def _trading_session(server_time: str) -> str:
-        """Derive trading session name from MT4 server time string (broker = GMT+2/+3)."""
+    def _trading_session(server_time: str, broker_gmt_offset: int = 0) -> str:
+        """Derive trading session name from MT4 server time string.
+
+        broker_gmt_offset: hours ahead of UTC (0=UTC, 2=EET winter, 3=EEST summer).
+        """
         try:
             hour = int(server_time[11:13])
         except (TypeError, IndexError, ValueError):
             return "Unknown"
-        # Approximate GMT offsets: broker server is typically GMT+2 (winter) / GMT+3 (summer).
-        # We treat server time as GMT+2 for a conservative estimate.
-        gmt = (hour - 2) % 24
+        gmt = (hour - broker_gmt_offset) % 24
         if 0 <= gmt < 7:
             return "Asia (low volatility — tight ranges, avoid breakout trades)"
         if 7 <= gmt < 10:
@@ -780,7 +782,7 @@ class AurumAgent:
 
         server_time = market_context.get("server_time")
         if server_time:
-            session = self._trading_session(server_time)
+            session = self._trading_session(server_time, self.risk_config.broker_gmt_offset)
             lines.append(f"Server Time: {server_time}  |  Session: {session}")
 
         atr = market_context.get("atr")
