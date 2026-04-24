@@ -220,11 +220,11 @@ class AurumAgent:
             pass
 
         session = self._trading_session(server_time or "", self.risk_config.broker_gmt_offset)
-        if "London Open" in session or "London/NY Overlap" in session:
-            return 300   # Kill Zones: 5 min — fast institutional moves
-        if "London" in session or "New York" in session:
-            return 600   # Active non-KZ sessions: 10 min
-        return 1800      # Asia / Late NY: 30 min — cost control (Claude will DONE via Kill Zone rules)
+        if "Kill Zone" in session:
+            return 300   # 5 min — maximum responsiveness during institutional windows
+        if "Active" in session:
+            return 600   # 10 min — scan for Trend Follow setups
+        return 1800      # Asia / Late NY — low activity, cost control
 
     # ------------------------------------------------------------------
     # Cycle
@@ -798,23 +798,31 @@ class AurumAgent:
         """Derive trading session name from MT4 server time string.
 
         broker_gmt_offset: hours ahead of UTC (0=UTC, 2=EET winter, 3=EEST summer).
+        Labels match exactly what strategy/CLAUDE.md and the EA indicator use.
         """
         try:
             hour = int(server_time[11:13])
+            minute = int(server_time[14:16])
         except (TypeError, IndexError, ValueError):
             return "Unknown"
-        gmt = (hour - broker_gmt_offset) % 24
-        if 0 <= gmt < 7:
-            return "Asia (low volatility — tight ranges, avoid breakout trades)"
-        if 7 <= gmt < 10:
-            return "London Open (rising volatility — watch for trend initiation)"
-        if 10 <= gmt < 13:
-            return "London (high volatility — trend-following preferred)"
-        if 13 <= gmt < 17:
-            return "London/NY Overlap (peak volatility — highest liquidity, strong moves)"
-        if 17 <= gmt < 22:
-            return "New York (moderate-high volatility — continuation or reversal setups)"
-        return "Late NY / Pre-Asia (low volatility — avoid new entries)"
+        gmt_mins = (hour * 60 + minute - broker_gmt_offset * 60) % (24 * 60)
+        h = gmt_mins // 60
+        m = gmt_mins % 60
+
+        # Kill Zones — exact institutional windows (match EA indicator defaults)
+        if h == 7 or (h == 8 and m < 30):                           # 07:00–08:30 UTC
+            return "London Kill Zone"
+        if (h == 13 and m >= 30) or h == 14:                        # 13:30–15:00 UTC
+            return "NY Kill Zone"
+        # Active sessions — Trend Follow eligible
+        if (h == 8 and m >= 30) or (9 <= h <= 12) or (h == 13 and m < 30):  # 08:30–13:30
+            return "London Active"
+        if 15 <= h <= 21:                                            # 15:00–22:00
+            return "NY Active"
+        # Low volatility — no new entries
+        if h < 7:
+            return "Asia"
+        return "Late NY"
 
     def _build_analysis_prompt(self, market_context: dict, trade_mgr_notes: str = "") -> str:
         """Build the prompt for Claude to analyze the current chart."""

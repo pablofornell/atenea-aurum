@@ -16,7 +16,7 @@ def config():
         max_lots=0.50,
         min_lots=0.01,
         min_sl_pts=10.0,
-        min_rr_ratio=1.5,
+        min_rr_ratio=1.2,
         max_spread_pts=30.0,
         max_daily_loss_pct=3.0,
         max_consecutive_losses=3,
@@ -100,12 +100,33 @@ class TestOrderValidator:
         assert not ok
 
     def test_rr_too_low_rejected(self, validator):
-        # BUY at ask=4700.50, sl=4685.50 (dist=15, passes min_sl=10), tp=4718 (dist=17.5) → R/R=1.17 → rejected
+        # BUY at ask=4700.50, sl=4685.50 (dist=15), tp=4718 (dist=17.5) → R/R=1.17 → rejected (< 1.2)
         action = {"action": "BUY", "sl": 4685.50, "tp": 4718.0, "lots": 0.10}
         ctx = _market_context(ask=4700.50)
         ok, reason = validator.validate_order(action, ctx, balance=4500.0)
         assert not ok
         assert "R/R" in reason or "ratio" in reason.lower()
+
+    def test_rr_exactly_1_2_passes(self, validator):
+        # BUY at ask=4700.50, sl=4690.50 (dist=10), tp=4712.50 (dist=12) → R/R=1.2 → passes
+        action = {"action": "BUY", "sl": 4690.50, "tp": 4712.50, "lots": 0.10}
+        ctx = _market_context(ask=4700.50)
+        ok, reason = validator.validate_order(action, ctx, balance=4500.0)
+        assert ok, f"R/R=1.2 should pass with min_rr_ratio=1.2: {reason}"
+
+    def test_rr_1_3_passes(self, validator):
+        # SELL at bid=4700, sl=4715 (dist=15), tp=4680.50 (dist=19.5) → R/R=1.3 → passes
+        action = {"action": "SELL", "sl": 4715.0, "tp": 4680.50, "lots": 0.10}
+        ctx = _market_context(bid=4700.0)
+        ok, reason = validator.validate_order(action, ctx, balance=4500.0)
+        assert ok, f"R/R=1.3 should pass: {reason}"
+
+    def test_real_spread_never_blocks(self, validator):
+        # Realistic XAUUSD spread (ask-bid = 0.32) must never trigger spread filter
+        action = {"action": "BUY", "sl": 4680.0, "tp": 4730.0, "lots": 0.10}
+        ctx = _market_context(bid=4690.34, ask=4690.66, spread=0.32)
+        ok, reason = validator.validate_order(action, ctx, balance=4500.0)
+        assert ok, f"Real XAUUSD spread 0.32 should never block: {reason}"
 
     def test_sl_too_close_rejected(self, validator):
         # SL dist = 4700.5 - 4696 = 4.5 < min_sl_pts (10.0) → rejected
@@ -245,18 +266,28 @@ class TestPositionSizer:
 
 class TestEntryFilters:
 
-    def test_london_session_passes(self, filters, config):
+    def test_london_kill_zone_passes(self, filters, config):
         ctx = _market_context(spread=10.0, atr=15.0)
-        ok, failures = filters.all_pass(ctx, "London Open", config)
+        ok, failures = filters.all_pass(ctx, "London Kill Zone", config)
         assert ok, f"Expected pass but got failures: {failures}"
 
-    def test_ny_session_passes(self, filters, config):
+    def test_ny_kill_zone_passes(self, filters, config):
         ctx = _market_context(spread=10.0, atr=15.0)
-        ok, failures = filters.all_pass(ctx, "New York", config)
+        ok, failures = filters.all_pass(ctx, "NY Kill Zone", config)
         assert ok
 
+    def test_london_active_passes(self, filters, config):
+        ctx = _market_context(spread=10.0, atr=15.0)
+        ok, failures = filters.all_pass(ctx, "London Active", config)
+        assert ok, f"Expected pass but got failures: {failures}"
+
+    def test_ny_active_passes(self, filters, config):
+        ctx = _market_context(spread=10.0, atr=15.0)
+        ok, failures = filters.all_pass(ctx, "NY Active", config)
+        assert ok, f"Expected pass but got failures: {failures}"
+
     def test_asia_session_passes(self, filters, config):
-        # Session logic is now Claude's responsibility via Kill Zone rules in the prompt
+        # Session gating is Claude's responsibility — filters only check ATR and spread
         ctx = _market_context(spread=10.0, atr=15.0)
         ok, failures = filters.all_pass(ctx, "Asia", config)
         assert ok, f"Expected pass but got failures: {failures}"
@@ -287,5 +318,11 @@ class TestEntryFilters:
     def test_all_pass_with_good_conditions(self, filters, config):
         # All objective conditions clear: ATR ok, spread ok — should pass regardless of session
         ctx = _market_context(spread=10.0, atr=15.0)
-        ok, failures = filters.all_pass(ctx, "Asia (low volatility)", config)
+        ok, failures = filters.all_pass(ctx, "Asia", config)
         assert ok, f"Expected pass but got: {failures}"
+
+    def test_real_xauusd_spread_passes_filter(self, filters, config):
+        # Spread from MT4 is ask-bid in price units (~0.32). Must never block.
+        ctx = _market_context(bid=4690.34, ask=4690.66, spread=0.32, atr=18.0)
+        ok, failures = filters.all_pass(ctx, "London Kill Zone", config)
+        assert ok, f"Real XAUUSD spread 0.32 should pass: {failures}"

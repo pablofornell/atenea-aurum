@@ -10,7 +10,7 @@ class RiskConfig:
     min_lots: float = 0.01
     # Order validation
     min_sl_pts: float = 10.0             # minimum SL distance in price points
-    min_rr_ratio: float = 1.5            # minimum risk/reward ratio
+    min_rr_ratio: float = 1.2            # minimum risk/reward ratio
     max_spread_pts: float = 30.0         # maximum spread to accept entry
     # Circuit breaker
     max_daily_loss_pct: float = 3.0      # max equity drawdown from session start (%)

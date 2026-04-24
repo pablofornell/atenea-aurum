@@ -205,7 +205,7 @@ class AurumTUI:
             t.append(f"{bid:.2f}\n", style="bold yellow")
             t.append("Ask  ", style="dim")
             t.append(f"{ask:.2f}  ", style="yellow")
-            t.append(f"spr {spread:.0f}\n", style="dim")
+            t.append(f"spr {spread:.2f}\n", style="dim")
             t.append("Hora ", style="dim")
             t.append(f"{s['server_time']}", style="dim white")
         else:
