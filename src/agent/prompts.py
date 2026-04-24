@@ -1,5 +1,10 @@
 """System prompts for AURUM — Smart Money Concepts trading agent for XAUUSD/MT4."""
 
+# NOTE (artefact): SYSTEM_PROMPT is no longer passed to Claude CLI.
+# The CLI loads strategy/CLAUDE.md automatically when called with cwd=STRATEGY_DIR,
+# so prepending this ~11 KB block to stdin was duplicating context and causing
+# 90-120 s+ response times. The constant is kept here because agent.py still
+# imports it; that import can be removed in a future clean-up pass.
 SYSTEM_PROMPT = """You are AURUM, an institutional-grade autonomous trading agent for XAUUSD (Gold/USD) on MetaTrader 4.
 Your methodology is based on Smart Money Concepts (SMC), Price Action, and institutional order flow analysis.
 

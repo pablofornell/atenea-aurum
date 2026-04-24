@@ -52,9 +52,11 @@ class AurumAgent:
         self.circuit_breaker = CircuitBreaker(cfg)
         self.trade_manager = TradeManager(cfg)
         self.filters = EntryFilters()
-        self.memory = CycleMemory(storage)
+        self.memory = CycleMemory(storage, broker_gmt_offset=cfg.broker_gmt_offset)
         self._current_market_context: dict = {}
         self._last_cb_reset_date: Optional[str] = None
+        self._pending_timeframe: Optional[str] = None
+        self._consecutive_timeouts: int = 0
 
     # ------------------------------------------------------------------
     # Main loop
@@ -117,8 +119,9 @@ class AurumAgent:
                     self.flog.cycle_start(session_id)
 
                 cycle_start = time.time()
+                cycle_result = "error"
                 try:
-                    self.run_cycle(session_id, cycle_num=total_cycles)
+                    cycle_result = self.run_cycle(session_id, cycle_num=total_cycles) or "done"
                 except Exception as e:
                     logger.error(f"Cycle error: {e}", exc_info=True)
                     total_errors += 1
@@ -128,6 +131,27 @@ class AurumAgent:
                 cycle_dur = time.time() - cycle_start
                 if self.flog:
                     self.flog.cycle_end(session_id, cycle_dur, final_action="—")
+
+                # ── Timeout circuit breaker ────────────────────────────────────
+                if cycle_result == "timeout":
+                    self._consecutive_timeouts += 1
+                    logger.warning(
+                        f"Timeout cycle detected ({self._consecutive_timeouts} consecutive)"
+                    )
+                else:
+                    self._consecutive_timeouts = 0
+
+                if self._consecutive_timeouts >= 3:
+                    logger.warning(
+                        f"3 consecutive timeouts — pausing 5 minutes before next cycle"
+                    )
+                    if self.tui:
+                        self.tui.set_status(
+                            "ADVERTENCIA: 3 timeouts consecutivos — pausa de 5 min",
+                            cycle=total_cycles,
+                        )
+                    time.sleep(300)
+                    self._consecutive_timeouts = 0
 
                 interval = self._current_interval()
                 remaining = interval - cycle_dur
@@ -206,17 +230,35 @@ class AurumAgent:
     # Cycle
     # ------------------------------------------------------------------
 
-    def run_cycle(self, session_id: str, cycle_num: int = 0):
-        """Execute one full analysis cycle (may span multiple turns for timeframe changes)."""
+    def run_cycle(self, session_id: str, cycle_num: int = 0) -> str:
+        """Execute one full analysis cycle (may span multiple turns for timeframe changes).
+
+        Returns:
+            "timeout"  — cycle ended because Claude timed out
+            "order"    — cycle ended after placing/closing an order
+            "done"     — cycle ended with DONE action
+            "error"    — cycle ended due to a non-timeout error
+        """
         logger.info(f"Cycle {session_id}: Starting")
 
-        # Ensure chart is on H1 before capturing — the primary SMC analysis timeframe
-        try:
-            self.mt4_bridge.set_timeframe("XAUUSD", "H1")
-            time.sleep(0.5)  # allow MT4 to refresh chart before screenshot
-        except Exception as e:
-            logger.warning(f"Could not set H1 at cycle start: {e}")
-        current_timeframe = "H1"
+        # Determine starting timeframe: resume pending LTF drill-down if set,
+        # otherwise start fresh on H1 (primary SMC analysis timeframe).
+        if self._pending_timeframe:
+            current_timeframe = self._pending_timeframe
+            self._pending_timeframe = None
+            logger.info(f"Resuming pending timeframe: {current_timeframe}")
+            try:
+                self.mt4_bridge.set_timeframe("XAUUSD", current_timeframe)
+                time.sleep(0.5)
+            except Exception as e:
+                logger.warning(f"Could not set pending timeframe {current_timeframe}: {e}")
+        else:
+            try:
+                self.mt4_bridge.set_timeframe("XAUUSD", "H1")
+                time.sleep(0.5)  # allow MT4 to refresh chart before screenshot
+            except Exception as e:
+                logger.warning(f"Could not set H1 at cycle start: {e}")
+            current_timeframe = "H1"
 
         if self.tui:
             self.tui.set_status("Capturando pantalla MT4…", cycle=cycle_num)
@@ -230,7 +272,7 @@ class AurumAgent:
                 self.tui.set_status("Error: captura de pantalla fallida", cycle=cycle_num)
             if self.flog:
                 self.flog.error("screenshot", str(e), session_id=session_id)
-            return
+            return "error"
 
         if self.flog:
             self.flog.screenshot(session_id, turn=0, path=screenshot_path)
@@ -271,7 +313,7 @@ class AurumAgent:
                     if self.flog:
                         self.flog.error("connection", "Reconnect failed, cycle aborted",
                                         session_id=session_id, turn=turn)
-                    return
+                    return "error"
                 market_context = self._get_market_context()
 
             # ── Store context for validators and circuit breaker ────────────
@@ -290,7 +332,7 @@ class AurumAgent:
                                     session_id=session_id, turn=turn)
                 self.storage.save_turn(session_id=session_id, role="system",
                                        content=f"Circuit breaker active: {cb_reason}")
-                return
+                return "error"
 
             # ── Auto trade management (runs every cycle with open position) ─
             positions_now = market_context.get("positions", [])
@@ -323,7 +365,7 @@ class AurumAgent:
                         {"action": "DONE", "reasoning": f"Filter blocked: {reasons}"},
                         market_context,
                     )
-                    return
+                    return "done"
 
             if self.flog:
                 self.flog.market_context(session_id, turn, market_context)
@@ -340,7 +382,6 @@ class AurumAgent:
                     prompt=analysis_prompt,
                     screenshot_path=screenshot_path,
                     session_history=history,
-                    system_prompt=SYSTEM_PROMPT
                 )
             except Exception as e:
                 logger.error(f"Claude call failed: {e}")
@@ -348,7 +389,7 @@ class AurumAgent:
                     self.tui.set_status("Error: llamada a Claude fallida", cycle=cycle_num)
                 if self.flog:
                     self.flog.error("claude_call", str(e), session_id=session_id, turn=turn)
-                return
+                return "error"
             claude_elapsed = time.time() - claude_start
             logger.info(f"Claude responded in {claude_elapsed:.1f}s")
 
@@ -357,12 +398,21 @@ class AurumAgent:
                 logger.error(f"Claude error: {err}")
                 if self.tui:
                     self.tui.set_status(f"Error Claude: {err[:50]}", cycle=cycle_num)
-                error_type = "timeout" if "timed out" in err else "claude_error"
+                is_timeout = "timed out" in err.lower()
+                error_type = "timeout" if is_timeout else "claude_error"
                 if self.flog:
                     self.flog.error(error_type, err, session_id=session_id, turn=turn)
                 self.storage.save_turn(session_id=session_id, role="system",
                                        content=f"Error calling Claude: {err}")
-                return
+                # If we timed out mid drill-down (turn > 1 means we already changed TF),
+                # preserve the current LTF so the next cycle resumes from it.
+                if is_timeout and turn > 1 and current_timeframe != "H1":
+                    self._pending_timeframe = current_timeframe
+                    logger.info(
+                        f"Timeout after CHANGE_TIMEFRAME — saving pending timeframe: "
+                        f"{current_timeframe}"
+                    )
+                return "timeout" if is_timeout else "error"
 
             action = response.get("action")
             raw_response = response.get("raw", "")
@@ -398,14 +448,19 @@ class AurumAgent:
                 if self.flog:
                     self.flog.error("parse_error", f"Could not parse JSON: {raw_response[:200]}",
                                     session_id=session_id, turn=turn)
-                return
+                return "error"
 
             cycle_done = self._execute_action(action, session_id, screenshot_path, turn,
                                               cycle_num=cycle_num)
 
             if cycle_done:
                 logger.info(f"Cycle {session_id}: Complete (action={action.get('action')})")
-                return
+                action_type = action.get("action", "")
+                # Clear any pending timeframe on normal cycle completion
+                self._pending_timeframe = None
+                if action_type in ("BUY", "SELL", "CLOSE", "MODIFY"):
+                    return "order"
+                return "done"
 
             if action.get("action") == "CHANGE_TIMEFRAME":
                 new_timeframe = action.get("timeframe", current_timeframe)
@@ -425,7 +480,7 @@ class AurumAgent:
                     if self.flog:
                         self.flog.error("connection", "Reconnect failed after CHANGE_TIMEFRAME",
                                         session_id=session_id, turn=turn)
-                    return
+                    return "error"
 
                 try:
                     screenshot_path = capture_mt4()
@@ -437,7 +492,7 @@ class AurumAgent:
                     logger.error(f"Failed to capture new screenshot: {e}")
                     if self.flog:
                         self.flog.error("screenshot", str(e), session_id=session_id, turn=turn)
-                    return
+                    return "error"
 
                 continue
 

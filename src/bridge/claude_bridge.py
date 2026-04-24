@@ -20,15 +20,21 @@ def call_claude(
     prompt: str,
     screenshot_path: Optional[str] = None,
     session_history: Optional[List[Dict[str, Any]]] = None,
-    system_prompt: Optional[str] = None
+    system_prompt: Optional[str] = None,  # DEPRECATED — no longer used; kept for call-site compatibility only
 ) -> dict:
     """Call Claude Code CLI with optional screenshot and session history.
+
+    The agent identity and SMC rules are loaded automatically by the CLI from
+    strategy/CLAUDE.md (because cwd=STRATEGY_DIR). The `system_prompt` parameter
+    is accepted for backwards compatibility but is intentionally ignored — passing
+    it was duplicating ~16 KB of context on every call and inflating response
+    times to 90-120 s+. Remove it from call sites when agent.py is next updated.
 
     Args:
         prompt: Main analysis prompt to Claude
         screenshot_path: Path to MT4 screenshot (Claude will read it)
         session_history: Previous turns in this session (list of {role, content, ...})
-        system_prompt: System instructions for Claude behavior
+        system_prompt: DEPRECATED. Ignored. Rules live in strategy/CLAUDE.md.
 
     Returns:
         Dict with keys:
@@ -41,9 +47,9 @@ def call_claude(
         ClaudeError if subprocess fails or response cannot be parsed
     """
 
-    # Build the full prompt with system instructions, history, and screenshot reference
+    # Build the stdin payload: session history + screenshot reference + analysis prompt.
+    # The system prompt is intentionally excluded — strategy/CLAUDE.md covers it.
     full_prompt = _build_prompt(
-        system_prompt=system_prompt,
         screenshot_path=screenshot_path,
         session_history=session_history,
         analysis_prompt=prompt
@@ -123,23 +129,20 @@ def call_claude(
 
 
 def _build_prompt(
-    system_prompt: Optional[str],
     screenshot_path: Optional[str],
     session_history: Optional[List[Dict[str, Any]]],
     analysis_prompt: str
 ) -> str:
-    """Build the full prompt to send to Claude CLI.
+    """Build the stdin payload to send to Claude CLI.
 
-    Includes: system instructions, previous conversation history, screenshot reference, and analysis prompt.
+    Includes: previous conversation history, screenshot reference, and analysis
+    prompt. The system prompt is intentionally omitted — strategy/CLAUDE.md is
+    loaded automatically by Claude CLI when cwd=STRATEGY_DIR, so including it
+    here would duplicate ~16 KB of context on every call.
     """
     parts = []
 
-    # 1. System prompt
-    if system_prompt:
-        parts.append(system_prompt)
-        parts.append("\n" + "="*80 + "\n")
-
-    # 2. Session history (if any)
+    # 1. Session history (if any)
     if session_history:
         parts.append("## Previous Analysis in This Session\n")
         for i, turn in enumerate(session_history, 1):
@@ -160,13 +163,13 @@ def _build_prompt(
 
         parts.append("\n" + "="*80 + "\n")
 
-    # 3. Current screenshot reference (Claude will read it)
+    # 2. Current screenshot reference (Claude will read it)
     if screenshot_path:
         parts.append(f"## Current Chart Screenshot\n")
         parts.append(f"Location: {screenshot_path}\n")
         parts.append("Please analyze the chart above.\n\n")
 
-    # 4. Main analysis prompt
+    # 3. Main analysis prompt
     parts.append("## Your Task\n")
     parts.append(analysis_prompt)
     parts.append("\n")

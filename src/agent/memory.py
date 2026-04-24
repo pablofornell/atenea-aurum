@@ -16,8 +16,9 @@ class CycleMemory:
     and what the P&L looked like at the time of the decision.
     """
 
-    def __init__(self, storage: "SessionStorage"):
+    def __init__(self, storage: "SessionStorage", broker_gmt_offset: int = 2):
         self.storage = storage
+        self.broker_gmt_offset = broker_gmt_offset
 
     def get_formatted(self, run_id: str, n: int = 5) -> str:
         """Return a formatted string of the last N cycle decisions for prompt injection.
@@ -106,7 +107,7 @@ class CycleMemory:
 
             # Derive session name from server_time if available
             server_time = market_context.get("server_time", "")
-            session_name = _derive_session(server_time)
+            session_name = _derive_session(server_time, self.broker_gmt_offset)
 
             self.storage.save_cycle_decision(
                 run_id=run_id,
@@ -126,13 +127,13 @@ class CycleMemory:
             logger.warning(f"CycleMemory.save failed (non-critical): {e}")
 
 
-def _derive_session(server_time: str) -> str:
-    """Derive session name from MT4 server time string (broker = GMT+2)."""
+def _derive_session(server_time: str, broker_gmt_offset: int = 2) -> str:
+    """Derive session name from MT4 server time string."""
     try:
         hour = int(server_time[11:13])
     except (TypeError, IndexError, ValueError):
         return ""
-    gmt = (hour - 2) % 24
+    gmt = (hour - broker_gmt_offset) % 24
     if 0 <= gmt < 7:
         return "Asia"
     if 7 <= gmt < 10:
