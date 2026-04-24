@@ -337,8 +337,12 @@ def _find_anomalies(events: list[dict]) -> list[str]:
                         f"`{ts}` — Orden {e['data']['action']} intentada sin datos de mercado (conexión caída)."
                     )
 
-    # Consecutive errors of the same type
-    error_types = [e["data"].get("type") for e in events if e["event"] == "error"]
+    # Consecutive errors of the same type (exclude expected repeating filter types)
+    _EXPECTED_REPEATING = {"entry_filter_blocked"}
+    error_types = [
+        e["data"].get("type") for e in events
+        if e["event"] == "error" and e["data"].get("type") not in _EXPECTED_REPEATING
+    ]
     for i in range(len(error_types) - 2):
         if error_types[i] == error_types[i+1] == error_types[i+2]:
             anomalies.append(

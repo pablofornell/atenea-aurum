@@ -183,7 +183,7 @@ class AurumAgent:
             return 300   # Kill Zones: 5 min — fast institutional moves
         if "London" in session or "New York" in session:
             return 600   # Active non-KZ sessions: 10 min
-        return 1800      # Asia / Late NY: 30 min — filters block anyway
+        return 1800      # Asia / Late NY: 30 min — cost control (Claude will DONE via Kill Zone rules)
 
     # ------------------------------------------------------------------
     # Cycle
@@ -210,7 +210,12 @@ class AurumAgent:
         if self.flog:
             self.flog.screenshot(session_id, turn=0, path=screenshot_path)
 
-        current_timeframe = "H4"
+        # Ensure chart is on H1 at cycle start — the primary SMC analysis timeframe
+        try:
+            self.mt4_bridge.set_timeframe("XAUUSD", "H1")
+        except Exception as e:
+            logger.warning(f"Could not set H1 at cycle start: {e}")
+        current_timeframe = "H1"
         turn = 0
         max_turns = 10
 

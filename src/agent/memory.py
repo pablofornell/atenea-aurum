@@ -33,6 +33,19 @@ class CycleMemory:
         if not decisions:
             return ""
 
+        # Drop DONE cycles from dead sessions — they add no analytical signal
+        _DEAD_SESSIONS = ("Asia", "Late NY")
+        decisions = [
+            d for d in decisions
+            if not (
+                d.get("action") == "DONE"
+                and any(s in (d.get("session_name") or "") for s in _DEAD_SESSIONS)
+            )
+        ]
+
+        if not decisions:
+            return ""
+
         lines = [f"## Recent Cycle History (last {len(decisions)} cycles — same run)"]
         for d in decisions:
             ts_raw = d.get("created_at", "")

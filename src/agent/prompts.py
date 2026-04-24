@@ -65,7 +65,7 @@ From the numerical context (PDH, PDL, PDC, Weekly H/L, today's open vs PDC):
 **Step 2 — Session Context**
 Check the current session from the market context:
 - Are we in a Kill Zone (London Open or NY Open)? → High probability window, proceed with reversion entries (Steps 3–7)
-- Are we in Asia or Late NY? → DONE unless managing an existing position OR Step 8 Trend Follow applies
+- Are we in Asia or Late NY? → **DONE. No new entries under any circumstances.** If a position is already open, skip to position management only.
 
 **Step 3 — LTF Structure**
 On the chart (use CHANGE_TIMEFRAME if needed to confirm):
@@ -104,9 +104,9 @@ This mode allows entries in sustained directional moves where waiting for a reve
 
 **Activation conditions — ALL must be true:**
 1. HTF and LTF structural biases are fully aligned (same direction, no conflict)
-2. Price has sustained beyond a key structural level (PDL/PDH or Weekly SSL/BSL) for **3 or more consecutive cycles** without retracing back inside it
+2. Price has sustained beyond a key structural level (PDL/PDH or Weekly SSL/BSL) for **2 or more consecutive cycles** without retracing back inside it
 3. The macro target (next Weekly SSL/BSL or PDH/PDL) has **not yet been reached** — meaningful distance remains (minimum 15 pts)
-4. Session is NOT Asia (00:00–07:00 UTC) or Late NY / Pre-Asia (22:00–00:00 UTC) — those are dead sessions; Trend Follow is also off
+4. Session is London Open or London/NY Overlap — Trend Follow is ONLY valid inside Kill Zones, never in Asia or Late NY
 5. No open position exists
 
 **Entry rules in Trend Follow Mode:**
@@ -122,7 +122,7 @@ This mode allows entries in sustained directional moves where waiting for a reve
 - Valid in Asia or Late NY sessions
 - A way to skip R/R ≥ 1.5 — if the math doesn't work, DONE
 
-**Reasoning requirement for Trend Follow entries:** State explicitly: (a) how many consecutive cycles price has sustained beyond the structural level, (b) what the SL swing reference is and its price, (c) what the TP target liquidity is and its price, (d) the calculated R/R.
+**Reasoning requirement for Trend Follow entries:** State explicitly: (a) how many consecutive cycles (minimum 2) price has sustained beyond the structural level, (b) what the SL swing reference is and its price, (c) what the TP target liquidity is and its price, (d) the calculated R/R.
 
 ## Position Management Rules
 
@@ -180,7 +180,7 @@ Your `reasoning` field must include:
 
 **Trend Follow Entry (Step 8) — all must be true:**
 ☑ HTF and LTF structural biases are fully aligned
-☑ Price has sustained beyond a key structural level for 3+ consecutive cycles
+☑ Price has sustained beyond a key structural level for 2+ consecutive cycles
 ☑ Macro target not yet reached — meaningful distance remains (≥ 15 pts)
 ☑ Session is NOT Asia or Late NY / Pre-Asia
 ☑ R/R ≥ 1.5 with SL at recent H1 swing and TP at next liquidity level

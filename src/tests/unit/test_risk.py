@@ -255,16 +255,16 @@ class TestEntryFilters:
         ok, failures = filters.all_pass(ctx, "New York", config)
         assert ok
 
-    def test_asia_session_blocked(self, filters, config):
+    def test_asia_session_passes(self, filters, config):
+        # Session logic is now Claude's responsibility via Kill Zone rules in the prompt
         ctx = _market_context(spread=10.0, atr=15.0)
         ok, failures = filters.all_pass(ctx, "Asia", config)
-        assert not ok
-        assert any("Asia" in f or "liquidity" in f.lower() for f in failures)
+        assert ok, f"Expected pass but got failures: {failures}"
 
-    def test_late_ny_session_blocked(self, filters, config):
+    def test_late_ny_session_passes(self, filters, config):
         ctx = _market_context(spread=10.0, atr=15.0)
         ok, failures = filters.all_pass(ctx, "Late NY", config)
-        assert not ok
+        assert ok, f"Expected pass but got failures: {failures}"
 
     def test_low_atr_blocked(self, filters, config):
         ctx = _market_context(atr=5.0, spread=10.0)
@@ -284,8 +284,8 @@ class TestEntryFilters:
         ok, failures = filters.all_pass(ctx, "London", config)
         assert ok  # ATR check skipped when no data
 
-    def test_check_session_direct(self, filters):
-        ok, _ = filters.check_session("London/NY Overlap")
-        assert ok
-        ok2, _ = filters.check_session("Asia")
-        assert not ok2
+    def test_all_pass_with_good_conditions(self, filters, config):
+        # All objective conditions clear: ATR ok, spread ok — should pass regardless of session
+        ctx = _market_context(spread=10.0, atr=15.0)
+        ok, failures = filters.all_pass(ctx, "Asia (low volatility)", config)
+        assert ok, f"Expected pass but got: {failures}"

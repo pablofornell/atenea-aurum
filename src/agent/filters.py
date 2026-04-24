@@ -1,7 +1,8 @@
 """Pre-entry market filters — applied before calling Claude when no position is open.
 
 All filters are deterministic (no LLM involved). They prevent unnecessary Claude calls
-during unfavorable market conditions (low liquidity, extreme spread, flat ATR).
+during objectively unfavorable conditions (extreme spread, flat ATR).
+Session timing is handled by Claude via the Kill Zone rules in its system prompt.
 CLOSE and MODIFY actions on existing positions bypass these filters entirely.
 """
 import logging
@@ -10,9 +11,6 @@ from typing import Tuple, List, Dict, Any
 from src.risk.config import RiskConfig
 
 logger = logging.getLogger(__name__)
-
-# Sessions where new position entries are not attempted
-BLOCKED_ENTRY_SESSIONS = ("Asia", "Late NY")
 
 
 class EntryFilters:
@@ -29,20 +27,6 @@ class EntryFilters:
                          Below this, the market is considered too flat for directional trades.
         """
         self.min_atr_pts = min_atr_pts
-
-    def check_session(self, session_name: str) -> Tuple[bool, str]:
-        """Block new entries during low-liquidity sessions.
-
-        Blocked: Asia (00:00-07:00 UTC), Late NY (22:00-00:00 UTC).
-        Allowed: London Open, London, London/NY Overlap, New York.
-        """
-        for blocked in BLOCKED_ENTRY_SESSIONS:
-            if blocked in session_name:
-                return False, (
-                    f"Session '{session_name}' — new entries blocked (low liquidity). "
-                    "Wait for London Open or NY Open Kill Zone."
-                )
-        return True, "OK"
 
     def check_atr(self, atr: float) -> Tuple[bool, str]:
         """Block entries when ATR(14) signals an extremely flat market."""
@@ -80,14 +64,6 @@ class EntryFilters:
             If all_passed is False, failures contains one or more human-readable reasons.
         """
         failures: List[str] = []
-
-        # Session filter
-        ok, reason = self.check_session(session_name)
-        if not ok:
-            failures.append(reason)
-            # Session is the most decisive filter — no need to check others
-            logger.info(f"EntryFilters blocked: {reason}")
-            return False, failures
 
         # ATR filter
         atr = market_context.get("atr")
