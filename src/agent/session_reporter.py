@@ -256,6 +256,12 @@ def _build_cycles(events: list[dict]) -> list[str]:
                     lines.append("**Posiciones**: ninguna")
             lines.append("")
 
+        md_events = [e for e in evs if e["event"] == "market_data"]
+        if md_events:
+            total_chars = sum(e["data"].get("block_chars", 0) for e in md_events)
+            lines.append(f"**Market data**: structured text block ({total_chars} chars) — {len(md_events)} turn(s)")
+            lines.append("")
+
         decisions = [e for e in evs if e["event"] == "claude_decision"]
         for dec in decisions:
             d = dec["data"]
@@ -371,6 +377,7 @@ def _build_code_refs(events: list[dict]) -> list[str]:
     lines.append("| `src/agent/agent.py` | Lógica principal del ciclo, decisiones, guardia anti-duplicados |")
     lines.append("| `src/agent/prompts.py` | System prompt enviado a Claude — calidad del razonamiento |")
     lines.append("| `src/bridge/claude_bridge.py` | Timeout, parsing de respuesta, subprocess |")
+    lines.append("| `src/market_data/provider.py` | Bloque de texto estructurado enviado a Claude (market data) |")
     lines.append("| `src/mt4/bridge.py` | Conexión TCP, reconexión, `set_timeframe`, `modify` |")
     lines.append("| `ops/AURUM_Bridge.mq4` | EA MT4 — errores de MODIFY/CLOSE/ORDER |")
 

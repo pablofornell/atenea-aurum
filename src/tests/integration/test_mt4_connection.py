@@ -10,7 +10,6 @@ import pytest
 import time
 
 from src.mt4.bridge import MT4Bridge, MT4BridgeError, MT4CommandError
-from src.mt4.screenshot import capture_mt4, ScreenshotError
 
 
 @pytest.mark.mt4
@@ -175,19 +174,4 @@ class TestMT4MarketData:
         )
 
 
-@pytest.mark.mt4
-class TestScreenshot:
-    """MT4 screenshot integration tests."""
-
-    def test_capture_screenshot(self):
-        """Test capturing MT4 screenshot."""
-        try:
-            path = capture_mt4(save_dir="data/test_screenshots")
-            assert path is not None
-            assert len(path) > 0
-            # File should exist
-            import os
-            assert os.path.exists(path)
-        except ScreenshotError as e:
-            pytest.skip(f"Screenshot capture failed: {e}")
 

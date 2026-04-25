@@ -199,10 +199,19 @@ void OnTimer()
       // Process command
       string response = ProcessCommand(command);
 
-      // Send response
-      uchar response_buf[];
-      StringToCharArray(response + "\n", response_buf);
-      send(g_client_socket, response_buf, StringLen(response) + 1, 0);
+      // Send response (chunked loop to handle large payloads like GET_CANDLES)
+      uchar send_buf[];
+      StringToCharArray(response + "\n", send_buf);
+      int total = ArraySize(send_buf) - 1;
+      int sent_total = 0;
+      while (sent_total < total) {
+         uchar chunk[];
+         int chunk_size = MathMin(1024, total - sent_total);
+         ArrayCopy(chunk, send_buf, 0, sent_total, chunk_size);
+         int sent = send(g_client_socket, chunk, chunk_size, 0);
+         if (sent == SOCKET_ERROR || sent <= 0) break;
+         sent_total += sent;
+      }
    }
 }
 
@@ -397,6 +406,33 @@ string ProcessCommand(string raw)
                       DoubleToString(pw_low,  2) + "," +
                       DoubleToString(cw_high, 2) + "," +
                       DoubleToString(cw_low,  2);
+      return "OK|" + result;
+   }
+
+   //--- GET_CANDLES  GET_CANDLES|XAUUSD|H1|48
+   if (cmd == "GET_CANDLES") {
+      if (n < 4) return "ERROR|missing_params";
+      string sym   = parts[1];
+      string tf_str = parts[2];
+      int    count = (int)StringToInteger(parts[3]);
+      int    tf    = PeriodFromString(tf_str);
+      if (count <= 0 || tf == 0) return "ERROR|invalid_params";
+      if (count > 200) count = 200;
+      string result = "";
+      for (int i = count - 1; i >= 0; i--) {
+         datetime t  = iTime (sym, tf, i);
+         double   o  = iOpen (sym, tf, i);
+         double   h  = iHigh (sym, tf, i);
+         double   l  = iLow  (sym, tf, i);
+         double   c  = iClose(sym, tf, i);
+         string candle = TimeToString(t, TIME_DATE|TIME_MINUTES) + "," +
+                         DoubleToString(o, 2) + "," +
+                         DoubleToString(h, 2) + "," +
+                         DoubleToString(l, 2) + "," +
+                         DoubleToString(c, 2);
+         if (i < count - 1) result += ";";
+         result += candle;
+      }
       return "OK|" + result;
    }
 

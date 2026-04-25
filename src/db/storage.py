@@ -97,6 +97,33 @@ class SessionStorage:
                 )
             """)
 
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS session_summaries (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL,
+                    session_date TEXT NOT NULL,
+                    pnl REAL,
+                    trades_taken INTEGER DEFAULT 0,
+                    wins INTEGER DEFAULT 0,
+                    losses INTEGER DEFAULT 0,
+                    key_errors TEXT,
+                    lesson TEXT NOT NULL,
+                    raw_events_json TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS strategy_insights (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    insight TEXT NOT NULL,
+                    confidence INTEGER DEFAULT 3,
+                    source_sessions TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
             self.conn.commit()
             logger.info(f"Database initialized: {self.db_path}")
         except sqlite3.Error as e:
@@ -207,18 +234,18 @@ class SessionStorage:
         self,
         session_id: str,
         timeframe: str,
-        screenshot_path: str,
         claude_response: str,
-        duration_ms: Optional[int] = None
+        duration_ms: Optional[int] = None,
+        screenshot_path: Optional[str] = None,
     ):
         """Log a high-level trading cycle.
 
         Args:
             session_id: Session identifier
             timeframe: Chart timeframe analyzed
-            screenshot_path: Path to screenshot
             claude_response: Raw JSON response from Claude
             duration_ms: Cycle duration in milliseconds
+            screenshot_path: Deprecated, kept for DB compatibility
         """
         try:
             cursor = self.conn.cursor()
@@ -296,6 +323,87 @@ class SessionStorage:
             return result
         except sqlite3.Error as e:
             raise StorageError(f"Failed to fetch cycle decisions: {e}")
+
+    def save_session_summary(
+        self,
+        run_id: str,
+        session_date: str,
+        pnl: Optional[float],
+        trades_taken: int,
+        wins: int,
+        losses: int,
+        key_errors: str,
+        lesson: str,
+        raw_events_json: Optional[str] = None,
+    ) -> int:
+        """Insert a session summary and return the inserted row id."""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                INSERT INTO session_summaries
+                (run_id, session_date, pnl, trades_taken, wins, losses, key_errors, lesson, raw_events_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (run_id, session_date, pnl, trades_taken, wins, losses, key_errors, lesson, raw_events_json))
+            self.conn.commit()
+            return cursor.lastrowid
+        except sqlite3.Error as e:
+            raise StorageError(f"Failed to save session summary: {e}")
+
+    def get_session_summaries(self, n: int = 14) -> List[Dict[str, Any]]:
+        """Return the last N session summaries ordered by created_at DESC."""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                SELECT * FROM session_summaries
+                ORDER BY created_at DESC
+                LIMIT ?
+            """, (n,))
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+        except sqlite3.Error as e:
+            raise StorageError(f"Failed to fetch session summaries: {e}")
+
+    def get_all_session_summaries(self) -> List[Dict[str, Any]]:
+        """Return all session summaries ordered by session_date ASC."""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                SELECT * FROM session_summaries
+                ORDER BY session_date ASC
+            """)
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+        except sqlite3.Error as e:
+            raise StorageError(f"Failed to fetch all session summaries: {e}")
+
+    def save_strategy_insights(self, insights: List[Dict[str, Any]]) -> None:
+        """Replace all strategy insights with the provided list (DELETE + INSERT in transaction)."""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("DELETE FROM strategy_insights")
+            for item in insights:
+                cursor.execute("""
+                    INSERT INTO strategy_insights (insight, confidence, source_sessions)
+                    VALUES (?, ?, ?)
+                """, (item["insight"], item.get("confidence", 3), item.get("source_sessions")))
+            self.conn.commit()
+        except sqlite3.Error as e:
+            self.conn.rollback()
+            raise StorageError(f"Failed to save strategy insights: {e}")
+
+    def get_strategy_insights(self) -> List[Dict[str, Any]]:
+        """Return all strategy insights ordered by confidence DESC, created_at DESC."""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                SELECT id, insight, confidence, source_sessions, created_at, last_updated
+                FROM strategy_insights
+                ORDER BY confidence DESC, created_at DESC
+            """)
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+        except sqlite3.Error as e:
+            raise StorageError(f"Failed to fetch strategy insights: {e}")
 
     def close(self):
         """Close database connection."""

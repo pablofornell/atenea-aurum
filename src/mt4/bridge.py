@@ -280,6 +280,41 @@ class MT4Bridge:
             "cw_low":  float(parts[3]),
         }
 
+    def get_candles(self, symbol: str, timeframe: str, count: int) -> list[dict]:
+        """Returns OHLC candles ordered oldest→newest.
+        Each dict: {timestamp: str, open: float, high: float, low: float, close: float}
+        Last candle is the current (incomplete) one.
+        """
+        try:
+            cmd = f"GET_CANDLES|{symbol}|{timeframe}|{count}"
+            old_timeout = self.timeout
+            self.sock.settimeout(10.0)
+            try:
+                response = self._send_cmd(cmd)
+            finally:
+                self.sock.settimeout(old_timeout)
+            result = self._parse_response(response)
+            if not result["data"]:
+                return []
+            candles = []
+            for entry in result["data"].split(";"):
+                if not entry:
+                    continue
+                parts = entry.split(",")
+                if len(parts) < 5:
+                    continue
+                candles.append({
+                    "timestamp": parts[0],
+                    "open":  float(parts[1]),
+                    "high":  float(parts[2]),
+                    "low":   float(parts[3]),
+                    "close": float(parts[4]),
+                })
+            return candles
+        except MT4BridgeError as e:
+            logger.warning(f"get_candles failed: {e}")
+            return []
+
     def get_stop_level(self, symbol: str = "XAUUSD") -> float:
         """Get the broker's minimum stop distance in points for a symbol.
 

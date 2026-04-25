@@ -93,8 +93,8 @@ class FeedbackLogger:
         }
         self._write("market_context", safe, session_id=session_id, turn=turn)
 
-    def screenshot(self, session_id: str, turn: int, path: str):
-        self._write("screenshot", {"path": path}, session_id=session_id, turn=turn)
+    def market_data_block(self, session_id: str, turn: int, block_chars: int):
+        self._write("market_data", {"block_chars": block_chars}, session_id=session_id, turn=turn)
 
     def claude_decision(self, session_id: str, turn: int,
                         action: dict, raw_response: str, elapsed_s: float):
@@ -125,7 +125,7 @@ class FeedbackLogger:
               session_id: Optional[str] = None, turn: int = 0):
         """Log any error with type classification for pattern analysis."""
         self._write("error", {
-            "type": error_type,   # timeout | connection | modify_failed | order_failed | screenshot
+            "type": error_type,   # timeout | connection | modify_failed | order_failed
             "detail": detail,
             "context": context or {},
         }, session_id=session_id, turn=turn)

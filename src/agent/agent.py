@@ -3,10 +3,10 @@ import time
 import logging
 import uuid
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Optional, Dict, Any
 
 from src.mt4.bridge import MT4Bridge, MT4BridgeError
-from src.mt4.screenshot import capture_mt4, ScreenshotError
 from src.bridge.claude_bridge import call_claude
 from src.db.storage import SessionStorage
 from src.agent.prompts import SYSTEM_PROMPT
@@ -17,7 +17,11 @@ from src.risk.circuit_breaker import CircuitBreaker
 from src.risk.position_sizer import calculate_lots
 from src.risk.trade_manager import TradeManager
 from src.agent.filters import EntryFilters
-from src.agent.memory import CycleMemory
+from src.market_data.provider import MarketDataProvider
+from src.market_data.macro_context import MacroContextProvider
+from src.agent.memory_manager import TieredMemoryManager
+
+STRATEGY_DIR = str(Path(__file__).resolve().parents[2] / "strategy")
 
 if TYPE_CHECKING:
     from src.ui.tui import AurumTUI
@@ -52,7 +56,10 @@ class AurumAgent:
         self.circuit_breaker = CircuitBreaker(cfg)
         self.trade_manager = TradeManager(cfg)
         self.filters = EntryFilters()
-        self.memory = CycleMemory(storage, broker_gmt_offset=cfg.broker_gmt_offset)
+        self.market_data_provider = MarketDataProvider(mt4_bridge)
+        self.macro_context_provider = MacroContextProvider(strategy_dir=STRATEGY_DIR)
+        self.memory_manager = TieredMemoryManager(storage, strategy_dir=STRATEGY_DIR)
+        self.macro_context: Optional[str] = None
         self._current_market_context: dict = {}
         self._last_cb_reset_date: Optional[str] = None
         self._pending_timeframe: Optional[str] = None
@@ -75,6 +82,13 @@ class AurumAgent:
         start_account = self._safe_account()
         if start_account:
             self.circuit_breaker.initialize(start_account.get("balance", 0.0))
+
+        try:
+            self.macro_context = self.macro_context_provider.fetch()
+            logger.info("Macro context loaded")
+        except Exception as e:
+            logger.warning(f"Macro context unavailable: {e}")
+            self.macro_context = self.macro_context_provider.get_cached_or_fallback()
 
         try:
             while self.running:
@@ -192,8 +206,8 @@ class AurumAgent:
             logger.info("Agent stopped by user (Ctrl+C)")
         finally:
             self.running = False
+            end_account = self._safe_account()
             if self.flog:
-                end_account = self._safe_account()
                 self.flog.run_end(
                     total_cycles=total_cycles,
                     total_errors=total_errors,
@@ -202,6 +216,18 @@ class AurumAgent:
                     start_equity=start_account.get("equity") if start_account else None,
                     end_equity=end_account.get("equity") if end_account else None,
                 )
+            start_balance = start_account.get("balance", 0.0) if start_account else 0.0
+            end_balance = end_account.get("balance", 0.0) if end_account else 0.0
+            final_pnl = end_balance - start_balance
+            try:
+                self.memory_manager.compress_session(
+                    run_id=self.run_id,
+                    session_date=datetime.utcnow().strftime("%Y-%m-%d"),
+                    pnl=final_pnl,
+                    trades=[],
+                )
+            except Exception as e:
+                logger.warning(f"Session compression failed: {e}")
 
     def _safe_account(self) -> Optional[dict]:
         try:
@@ -259,27 +285,15 @@ class AurumAgent:
         else:
             try:
                 self.mt4_bridge.set_timeframe("XAUUSD", "H1")
-                time.sleep(0.5)  # allow MT4 to refresh chart before screenshot
+                time.sleep(0.5)
             except Exception as e:
                 logger.warning(f"Could not set H1 at cycle start: {e}")
             current_timeframe = "H1"
 
         if self.tui:
-            self.tui.set_status("Capturando pantalla MT4…", cycle=cycle_num)
+            self.tui.set_status("Obteniendo datos de mercado…", cycle=cycle_num)
 
-        try:
-            screenshot_path = capture_mt4()
-            logger.info(f"Screenshot captured: {screenshot_path}")
-        except ScreenshotError as e:
-            logger.error(f"Failed to capture MT4: {e}")
-            if self.tui:
-                self.tui.set_status("Error: captura de pantalla fallida", cycle=cycle_num)
-            if self.flog:
-                self.flog.error("screenshot", str(e), session_id=session_id)
-            return "error"
-
-        if self.flog:
-            self.flog.screenshot(session_id, turn=0, path=screenshot_path)
+        candles = self.market_data_provider.fetch_all_candles()
         turn = 0
         max_turns = 10
 
@@ -292,6 +306,10 @@ class AurumAgent:
                                     cycle=cycle_num, turn=turn, max_turns=max_turns)
 
             market_context = self._get_market_context()
+            session_label = self._trading_session(
+                market_context.get("server_time", ""), self.risk_config.broker_gmt_offset
+            )
+            market_context["session_label"] = session_label
 
             if self.tui:
                 self.tui.update_account(market_context.get("account"))
@@ -351,10 +369,7 @@ class AurumAgent:
             # Skip the Claude call entirely for dead sessions — the answer is always
             # DONE and calling the LLM wastes ~60-120s per cycle.
             if not positions_now:
-                session_name_f = self._trading_session(
-                    market_context.get("server_time", ""),
-                    self.risk_config.broker_gmt_offset,
-                )
+                session_name_f = session_label
                 _DEAD_SESSIONS = ("Asia", "Late NY")
                 if any(session_name_f.startswith(s) for s in _DEAD_SESSIONS):
                     reason = f"Dead session ({session_name_f}) — no entries allowed"
@@ -362,7 +377,7 @@ class AurumAgent:
                     if self.flog:
                         self.flog.error("entry_filter_blocked", reason,
                                         session_id=session_id, turn=turn)
-                    self.memory.save(
+                    self.memory_manager.save_cycle(
                         self.run_id, session_id, cycle_num,
                         {"action": "DONE", "reasoning": reason},
                         market_context,
@@ -381,7 +396,7 @@ class AurumAgent:
                                         session_id=session_id, turn=turn)
                     self.storage.save_turn(session_id=session_id, role="system",
                                            content=f"Entry filters blocked: {reasons}")
-                    self.memory.save(
+                    self.memory_manager.save_cycle(
                         self.run_id, session_id, cycle_num,
                         {"action": "DONE", "reasoning": f"Filter blocked: {reasons}"},
                         market_context,
@@ -391,7 +406,16 @@ class AurumAgent:
             if self.flog:
                 self.flog.market_context(session_id, turn, market_context)
 
-            analysis_prompt = self._build_analysis_prompt(market_context, trade_mgr_notes=trade_mgr_notes)
+            market_data_block = self.market_data_provider.build_text_block(
+                market_context=market_context,
+                candles=candles,
+                macro_context=self.macro_context,
+            )
+            analysis_prompt = self._build_analysis_prompt(
+                market_context,
+                trade_mgr_notes=trade_mgr_notes,
+                market_data_block=market_data_block,
+            )
             history = self.storage.get_session_history(session_id)
 
             if self.tui:
@@ -401,7 +425,6 @@ class AurumAgent:
             try:
                 response = call_claude(
                     prompt=analysis_prompt,
-                    screenshot_path=screenshot_path,
                     session_history=history,
                 )
             except Exception as e:
@@ -452,13 +475,12 @@ class AurumAgent:
                 session_id=session_id,
                 role="assistant",
                 content=raw_response,
-                screenshot_path=screenshot_path,
                 timeframe=current_timeframe
             )
 
             # Save cycle decision to cross-cycle memory
             if action:
-                self.memory.save(
+                self.memory_manager.save_cycle(
                     self.run_id, session_id, cycle_num, action, market_context
                 )
 
@@ -471,8 +493,7 @@ class AurumAgent:
                                     session_id=session_id, turn=turn)
                 return "error"
 
-            cycle_done = self._execute_action(action, session_id, screenshot_path, turn,
-                                              cycle_num=cycle_num)
+            cycle_done = self._execute_action(action, session_id, turn, cycle_num=cycle_num)
 
             if cycle_done:
                 logger.info(f"Cycle {session_id}: Complete (action={action.get('action')})")
@@ -490,31 +511,8 @@ class AurumAgent:
                     self.tui.set_status(f"Cambiando timeframe a {new_timeframe}…",
                                         cycle=cycle_num, turn=turn)
 
-                time.sleep(2)
-                reconnected = self.mt4_bridge.reconnect()
-                if self.flog:
-                    self.flog.reconnect(reconnected, attempts=5, session_id=session_id)
-                if not reconnected:
-                    logger.error("Lost MT4 connection after timeframe change, ending cycle")
-                    if self.tui:
-                        self.tui.set_status("Error: reconexión tras cambio de TF", cycle=cycle_num)
-                    if self.flog:
-                        self.flog.error("connection", "Reconnect failed after CHANGE_TIMEFRAME",
-                                        session_id=session_id, turn=turn)
-                    return "error"
-
-                try:
-                    screenshot_path = capture_mt4()
-                    current_timeframe = new_timeframe
-                    logger.info(f"New screenshot: {screenshot_path}")
-                    if self.flog:
-                        self.flog.screenshot(session_id, turn=turn, path=screenshot_path)
-                except ScreenshotError as e:
-                    logger.error(f"Failed to capture new screenshot: {e}")
-                    if self.flog:
-                        self.flog.error("screenshot", str(e), session_id=session_id, turn=turn)
-                    return "error"
-
+                current_timeframe = new_timeframe
+                logger.info(f"Timeframe context updated to {current_timeframe}; all TF data available in market_data_block")
                 continue
 
     # ------------------------------------------------------------------
@@ -522,7 +520,7 @@ class AurumAgent:
     # ------------------------------------------------------------------
 
     def _execute_action(self, action: Dict[str, Any], session_id: str,
-                        screenshot_path: str, turn: int, cycle_num: int = 0) -> bool:
+                        turn: int, cycle_num: int = 0) -> bool:
         """Execute a trading action. Returns True if cycle should end."""
         action_type = action.get("action")
         reasoning = action.get("reasoning", "")
@@ -845,72 +843,23 @@ class AurumAgent:
             return "Asia"
         return "Late NY"
 
-    def _build_analysis_prompt(self, market_context: dict, trade_mgr_notes: str = "") -> str:
-        """Build the prompt for Claude to analyze the current chart."""
-        lines = ["## Current Market Context"]
+    def _build_analysis_prompt(
+        self,
+        market_context: dict,
+        trade_mgr_notes: str = "",
+        market_data_block: str = "",
+    ) -> str:
+        """Build the prompt for Claude to analyze the current market data."""
+        lines = []
 
-        account = market_context.get("account")
-        if account:
-            lines.append(
-                f"Balance: {account['balance']:.2f} {account['currency']} | "
-                f"Equity: {account['equity']:.2f} | "
-                f"Free Margin: {account['free_margin']:.2f}"
-            )
+        if market_data_block:
+            lines.append("## Market Data")
+            lines.append(market_data_block)
 
-        price = market_context.get("price")
-        if price:
-            lines.append(
-                f"Bid: {price['bid']:.5f} | Ask: {price['ask']:.5f} | "
-                f"Spread: {price['spread']:.1f} pts"
-            )
-
-        server_time = market_context.get("server_time")
-        if server_time:
-            session = self._trading_session(server_time, self.risk_config.broker_gmt_offset)
-            lines.append(f"Server Time: {server_time}  |  Session: {session}")
-
-        atr = market_context.get("atr")
-        if atr is not None:
-            sl_1x = round(atr * 1.0, 2)
-            sl_15x = round(atr * 1.5, 2)
-            lines.append(
-                f"ATR(14): {atr:.2f} USD  →  "
-                f"Suggested SL buffer: {sl_1x:.2f} (1×ATR) – {sl_15x:.2f} (1.5×ATR)"
-            )
-
-        ohlc = market_context.get("day_ohlc")
-        if ohlc:
-            bias = "BULLISH" if ohlc["td_open"] > ohlc["pd_close"] else "BEARISH"
-            lines.append(
-                f"\n## Key Daily Levels (XAUUSD)\n"
-                f"  Prev Day  Open: {ohlc['pd_open']:.2f} | High: {ohlc['pd_high']:.2f} | "
-                f"Low: {ohlc['pd_low']:.2f} | Close: {ohlc['pd_close']:.2f}\n"
-                f"  Today     Open: {ohlc['td_open']:.2f}  "
-                f"(gap bias vs PDC: {bias})"
-            )
-
-        week = market_context.get("week_hl")
-        if week:
-            lines.append(
-                f"  Prev Week High: {week['pw_high']:.2f} | Low: {week['pw_low']:.2f}  |  "
-                f"Curr Week High: {week['cw_high']:.2f} | Low: {week['cw_low']:.2f}"
-            )
-
-        positions = market_context.get("positions", [])
-        if positions:
-            lines.append(f"\nOpen Positions ({len(positions)}):")
-            for p in positions:
-                lines.append(
-                    f"  #{p['ticket']} {p['type']} {p['lots']} lot @ {p['open_price']:.5f} | "
-                    f"SL: {p['sl']:.5f} | TP: {p['tp']:.5f} | P&L: {p['profit']:+.2f}"
-                )
-        else:
-            lines.append("\nOpen Positions: None")
-
-        # ── Recent cycle history (cross-cycle memory) ───────────────────────
-        history_str = self.memory.get_formatted(self.run_id)
-        if history_str:
-            lines.append(f"\n{history_str}")
+        # ── Trading memory (L1/L2/L3) ──────────────────────────────────────
+        memory_str = self.memory_manager.build_context(self.run_id)
+        if memory_str:
+            lines.append(f"\n{memory_str}")
 
         # ── Suggested position size ─────────────────────────────────────────
         account_ps = market_context.get("account") or {}

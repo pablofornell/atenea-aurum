@@ -18,11 +18,10 @@ class ClaudeError(Exception):
 
 def call_claude(
     prompt: str,
-    screenshot_path: Optional[str] = None,
     session_history: Optional[List[Dict[str, Any]]] = None,
     system_prompt: Optional[str] = None,  # DEPRECATED — no longer used; kept for call-site compatibility only
 ) -> dict:
-    """Call Claude Code CLI with optional screenshot and session history.
+    """Call Claude Code CLI with structured text prompt and session history.
 
     The agent identity and SMC rules are loaded automatically by the CLI from
     strategy/CLAUDE.md (because cwd=STRATEGY_DIR). The `system_prompt` parameter
@@ -31,8 +30,7 @@ def call_claude(
     times to 90-120 s+. Remove it from call sites when agent.py is next updated.
 
     Args:
-        prompt: Main analysis prompt to Claude
-        screenshot_path: Path to MT4 screenshot (Claude will read it)
+        prompt: Main analysis prompt to Claude (structured market data text block)
         session_history: Previous turns in this session (list of {role, content, ...})
         system_prompt: DEPRECATED. Ignored. Rules live in strategy/CLAUDE.md.
 
@@ -47,10 +45,9 @@ def call_claude(
         ClaudeError if subprocess fails or response cannot be parsed
     """
 
-    # Build the stdin payload: session history + screenshot reference + analysis prompt.
+    # Build the stdin payload: session history + analysis prompt.
     # The system prompt is intentionally excluded — strategy/CLAUDE.md covers it.
     full_prompt = _build_prompt(
-        screenshot_path=screenshot_path,
         session_history=session_history,
         analysis_prompt=prompt
     )
@@ -65,7 +62,7 @@ def call_claude(
             text=True,
             encoding='utf-8',
             cwd=str(STRATEGY_DIR),
-            timeout=120,  # 120s — Turn 1: ~60-90s (Read PNG + analysis). Multi-turn: no re-reads now.
+            timeout=120,
         )
 
         if result.returncode != 0:
@@ -129,25 +126,19 @@ def call_claude(
 
 
 def _build_prompt(
-    screenshot_path: Optional[str],
     session_history: Optional[List[Dict[str, Any]]],
     analysis_prompt: str
 ) -> str:
     """Build the stdin payload to send to Claude CLI.
 
-    Includes: previous conversation history, screenshot reference, and analysis
-    prompt. The system prompt is intentionally omitted — strategy/CLAUDE.md is
+    Includes: previous conversation history and analysis prompt.
+    The system prompt is intentionally omitted — strategy/CLAUDE.md is
     loaded automatically by Claude CLI when cwd=STRATEGY_DIR, so including it
     here would duplicate ~16 KB of context on every call.
     """
     parts = []
 
     # 1. Session history (if any)
-    # NOTE: screenshot_path is intentionally omitted from history turns.
-    # Passing old PNG paths causes Claude to re-read every previous screenshot via
-    # its Read tool, adding one API round-trip per historical turn. The text content
-    # of each turn already contains Claude's analysis — re-reading the image adds no
-    # new information and inflates response time by 30-60s per historical turn.
     if session_history:
         parts.append("## Previous Analysis in This Session\n")
         for i, turn in enumerate(session_history, 1):
@@ -165,13 +156,7 @@ def _build_prompt(
 
         parts.append("\n" + "="*80 + "\n")
 
-    # 2. Current screenshot reference (Claude will read it)
-    if screenshot_path:
-        parts.append(f"## Current Chart Screenshot\n")
-        parts.append(f"Location: {screenshot_path}\n")
-        parts.append("Please analyze the chart above.\n\n")
-
-    # 3. Main analysis prompt
+    # 2. Main analysis prompt
     parts.append("## Your Task\n")
     parts.append(analysis_prompt)
     parts.append("\n")
