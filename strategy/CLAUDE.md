@@ -23,6 +23,9 @@ ATR_H1=18.4 ATR_H4=42.1
 ━━ H1 [48 candles, oldest→newest] ━━
 4710/4724/4698/4712 | 4712/4726/4706/4716 | ...
 
+━━ M15 [24 candles, oldest→newest] ━━
+...
+
 ━━ H4 [12 candles, oldest→newest] ━━
 ...
 
@@ -38,6 +41,7 @@ D: PDH=4753.67 PDL=4664.08 | TodayO=4693.00
 Structure: H1=BEARISH(LH:4772→4750→4723) D1=NEUTRAL(weekly_low_bounce)
 SSL_nearest=4664.08 | BSL_nearest=4772.00
 SuggestedSL_ref=18.4pts (1×ATR_H1)
+TF_H1_above_PDH: 3  ← Trend Follow condition met (≥2)
 
 OPEN POSITIONS: None
 
@@ -55,6 +59,9 @@ MACRO_CONTEXT (live, 11:30 UTC):
 - `Structure: H1=...` = structural bias derived from H1 swing highs/lows
 - `Structure: D1=...` = structural bias derived from D1 swings
 - `SuggestedSL_ref` = 1×ATR_H1, the minimum SL distance reference
+- `━━ M15 [24 candles] ━━` = 6 hours of 15-minute granularity for precise OB/FVG identification
+- `TF_H1_above_PDH: N` = consecutive H1 closes above PDH; if N≥2, Trend Follow SELL condition #3 is met
+- `TF_H1_below_PDL: N` = consecutive H1 closes below PDL; if N≥2, Trend Follow BUY condition #3 is met
 
 **MACRO_CONTEXT** provides live fundamental data. Always incorporate it into your HTF bias assessment.
 
@@ -157,7 +164,7 @@ From H1 candle series and `Structure: H1=...` field:
 
 **Step 4 — POI identification**
 - Is there an unmitigated OB or FVG within **1×ATR** of current price, aligned with the HTF bias direction?
-- Use CHANGE_TIMEFRAME (M15, M5) if no OB/FVG is visible on H1 but price may be at one on a lower TF
+- Use CHANGE_TIMEFRAME only for M5 — M15 data is already included in every market data block. Request M5 only when M15 shows a POI but sub-5-min entry precision is needed for OB boundary confirmation.
 - If no POI within 1×ATR → go to Step 8 (Trend Follow)
 
 **Step 5 — Liquidity**
@@ -183,7 +190,7 @@ Activated when: no reachable POI (Step 4 failed) OR R/R insufficient on Reversio
 **All conditions must be true:**
 1. **LTF clearly directional:** H1 shows consistent lower highs + lower lows (bearish) OR higher highs + higher lows (bullish). "Choppy" or "ranging" = fail.
 2. **HTF neutral is acceptable:** HTF bias can be neutral (flat gap vs PDC). LTF direction alone is sufficient when the trend is unambiguous.
-3. **Price has sustained beyond a key level for 2+ consecutive cycles** without fully retracing back inside. The level: PDL, PDH, Weekly SSL, Weekly BSL.
+3. **The KEY LEVELS block shows `TF_H1_above_PDH ≥ 2`** (for SELL setups, price sustained above PDH) or **`TF_H1_below_PDL ≥ 2`** (for BUY setups, price sustained below PDL). This counter is pre-calculated by the system — do not count manually from the cycle history.
 4. **Macro target ≥ 10 pts away**: next major liquidity (Weekly SSL/BSL, PDH/PDL) must have ≥ 10 pts of room.
 5. **Session is not Asia or Late NY.**
 6. **No open position.**
@@ -201,11 +208,11 @@ If both Reversion AND Trend Follow fail → DONE with explicit reasons for each.
 
 | Action | Use When | Required Fields |
 |--------|---------|-----------------|
-| BUY | Bullish OB/FVG at discount, Kill Zone (Reversion) OR 2+ cycles above key level (Trend Follow) | symbol, lots, sl, tp |
-| SELL | Bearish OB/FVG at premium, Kill Zone (Reversion) OR 2+ cycles below key level (Trend Follow) — only when SSL_SWEPT=false | symbol, lots, sl, tp |
+| BUY | Bullish OB/FVG at discount, Kill Zone (Reversion) OR `TF_H1_below_PDL ≥ 2` (Trend Follow) | symbol, lots, sl, tp |
+| SELL | Bearish OB/FVG at premium, Kill Zone (Reversion) OR `TF_H1_above_PDH ≥ 2` (Trend Follow) — only when SSL_SWEPT=false | symbol, lots, sl, tp |
 | CLOSE | Position invalidated (structure breaks against you) | ticket |
 | MODIFY | Structural reason to adjust SL/TP | ticket, sl, tp |
-| CHANGE_TIMEFRAME | Need LTF POI confirmation (M15 or M5) | timeframe |
+| CHANGE_TIMEFRAME | Need M5 sub-15-min entry precision — M15 is already in the data block | timeframe |
 | DONE | Explicit blocking reason from the allowed list above | done=true |
 
 ## Position Management
@@ -237,4 +244,4 @@ The system handles this automatically — **do not override unless structurally 
 - Which specific blocking reason applies (from the allowed list)
 - Numerical evidence: e.g. "nearest POI is bearish OB at 4720 — distance = 27 pts, 1×ATR = 17 pts, exceeds 1×ATR threshold" OR "R/R = 1.1: entry=4683, SL=4700 (dist=17), TP=4664 (dist=19) → 19/17=1.12 < 1.2"
 
-**CHANGE_TIMEFRAME:** `timeframe` only (e.g. "M15"). Use when H1 candle data shows a potential POI but you need lower-TF confirmation of OB boundaries or entry precision.
+**CHANGE_TIMEFRAME:** `timeframe` only (e.g. "M5"). Use only for M5 — M15 data is already in every market data block. Request M5 when M15 shows a POI but sub-5-min entry precision is needed for OB boundary confirmation.

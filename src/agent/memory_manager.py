@@ -111,6 +111,10 @@ class TieredMemoryManager:
 
         Returns the lesson string, or None if storage itself fails.
         """
+        if not trades:
+            logger.info("compress_session: no trades this session — skipping lesson generation")
+            return None
+
         wins = sum(1 for t in trades if t.get("outcome") in ("win", "tp", "WIN", "TP"))
         losses = sum(1 for t in trades if t.get("outcome") in ("loss", "sl", "LOSS", "SL"))
 
@@ -144,8 +148,9 @@ class TieredMemoryManager:
             logger.error(f"TieredMemoryManager.update_strategy_insights: fetch failed — {e}")
             return
 
-        if len(sessions) < 3:
-            logger.debug("update_strategy_insights: fewer than 3 sessions, skipping")
+        meaningful_sessions = [s for s in sessions if s.get('trades_taken', 0) > 0]
+        if len(meaningful_sessions) < 3:
+            logger.debug("update_strategy_insights: fewer than 3 sessions with real trades, skipping")
             return
 
         summaries_text = "\n".join(

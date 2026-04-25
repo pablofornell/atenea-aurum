@@ -227,3 +227,22 @@ def check_ssl_swept(candles_h1: list, ssl_level: float, lookback_candles: int = 
             }
 
     return default
+
+
+def count_consecutive_closes_beyond(candles: list, level: float, direction: str) -> int:
+    """Count consecutive candles (most recent first) that closed beyond level.
+
+    direction: 'above' (close > level) or 'below' (close < level).
+    Returns 0 if candles is empty or level is 0/None.
+    """
+    if not candles or not level:
+        return 0
+    count = 0
+    for candle in reversed(candles):
+        if direction == "above" and candle["close"] > level:
+            count += 1
+        elif direction == "below" and candle["close"] < level:
+            count += 1
+        else:
+            break
+    return count

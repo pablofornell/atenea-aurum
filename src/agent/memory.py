@@ -2,6 +2,8 @@
 import logging
 from typing import List, Dict, Any, TYPE_CHECKING
 
+from src.utils.session import trading_session
+
 if TYPE_CHECKING:
     from src.db.storage import SessionStorage
 
@@ -129,22 +131,4 @@ class CycleMemory:
 
 def _derive_session(server_time: str, broker_gmt_offset: int = 0) -> str:
     """Derive session name from MT4 server time string. Matches AurumAgent._trading_session."""
-    try:
-        hour = int(server_time[11:13])
-        minute = int(server_time[14:16])
-    except (TypeError, IndexError, ValueError):
-        return ""
-    gmt_mins = (hour * 60 + minute - broker_gmt_offset * 60) % (24 * 60)
-    h = gmt_mins // 60
-    m = gmt_mins % 60
-    if h == 7 or (h == 8 and m < 30):
-        return "London Kill Zone"
-    if (h == 13 and m >= 30) or h == 14:
-        return "NY Kill Zone"
-    if (h == 8 and m >= 30) or (9 <= h <= 12) or (h == 13 and m < 30):
-        return "London Active"
-    if 15 <= h <= 21:
-        return "NY Active"
-    if h < 7:
-        return "Asia"
-    return "Late NY"
+    return trading_session(server_time, broker_gmt_offset)

@@ -5,12 +5,12 @@ from typing import Optional
 
 from src.market_data.levels import (
     find_swing_highs, find_swing_lows, detect_structure,
-    calc_atr, find_ssl_bsl, check_ssl_swept,
+    calc_atr, find_ssl_bsl, check_ssl_swept, count_consecutive_closes_beyond,
 )
 
 logger = logging.getLogger(__name__)
 
-CANDLE_COUNTS = {"H1": 48, "H4": 12, "D1": 7, "W1": 4}
+CANDLE_COUNTS = {"H1": 48, "H4": 12, "D1": 7, "W1": 4, "M15": 24}
 
 
 class MarketDataProvider:
@@ -65,6 +65,7 @@ class MarketDataProvider:
             h4_candles = candles.get("H4", [])
             d1_candles = candles.get("D1", [])
             w1_candles = candles.get("W1", [])
+            m15_candles = candles.get("M15", [])
 
             atr_h1 = calc_atr(h1_candles) if h1_candles else 0.0
             atr_h4 = calc_atr(h4_candles) if h4_candles else 0.0
@@ -85,6 +86,13 @@ class MarketDataProvider:
             lines.append(f"━━ H1 [{len(h1_candles)} candles, oldest→newest] ━━")
             if h1_candles:
                 lines.append(self._format_candles(h1_candles, per_line=8, mark_last=False))
+            else:
+                lines.append("[unavailable]")
+            lines.append("")
+
+            lines.append(f"━━ M15 [{len(m15_candles)} candles, oldest→newest] ━━")
+            if m15_candles:
+                lines.append(self._format_candles(m15_candles, per_line=8, mark_last=False))
             else:
                 lines.append("[unavailable]")
             lines.append("")
@@ -131,6 +139,9 @@ class MarketDataProvider:
             daily_bsl_v = daily_bsl if daily_bsl is not None else 0.0
             daily_open_v = daily_open if daily_open is not None else 0.0
 
+            tf_above_pdh = count_consecutive_closes_beyond(h1_candles, daily_bsl_v, "above") if daily_bsl_v > 0 else 0
+            tf_below_pdl = count_consecutive_closes_beyond(h1_candles, daily_ssl_v, "below") if daily_ssl_v > 0 else 0
+
             ssl_nearest = max(weekly_ssl_v, daily_ssl_v)
             bsl_nearest = min(
                 weekly_bsl_v if weekly_bsl_v > 0.0 else float("inf"),
@@ -156,6 +167,12 @@ class MarketDataProvider:
                 f"SSL_nearest={ssl_nearest:.2f} | BSL_nearest={bsl_nearest:.2f}"
             )
             lines.append(f"SuggestedSL_ref={atr_h1_ref:.1f}pts (1×ATR_H1)")
+            if tf_above_pdh > 0:
+                suffix = "  ← Trend Follow condition met (≥2)" if tf_above_pdh >= 2 else "  ← need ≥2 for Trend Follow"
+                lines.append(f"TF_H1_above_PDH: {tf_above_pdh}{suffix}")
+            if tf_below_pdl > 0:
+                suffix = "  ← Trend Follow condition met (≥2)" if tf_below_pdl >= 2 else "  ← need ≥2 for Trend Follow"
+                lines.append(f"TF_H1_below_PDL: {tf_below_pdl}{suffix}")
             lines.append("")
 
             positions = market_context.get("positions", [])

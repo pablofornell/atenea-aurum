@@ -9,9 +9,9 @@ from typing import TYPE_CHECKING, Optional, Dict, Any
 from src.mt4.bridge import MT4Bridge, MT4BridgeError
 from src.bridge.claude_bridge import call_claude
 from src.db.storage import SessionStorage
-from src.agent.prompts import SYSTEM_PROMPT
 from src.agent.feedback_logger import FeedbackLogger
 from src.risk.config import RiskConfig
+from src.utils.session import trading_session
 from src.risk.validator import OrderValidator
 from src.risk.circuit_breaker import CircuitBreaker
 from src.risk.position_sizer import calculate_lots
@@ -62,7 +62,6 @@ class AurumAgent:
         self.macro_context: Optional[str] = None
         self._current_market_context: dict = {}
         self._last_cb_reset_date: Optional[str] = None
-        self._pending_timeframe: Optional[str] = None
         self._consecutive_timeouts: int = 0
 
     # ------------------------------------------------------------------
@@ -271,31 +270,19 @@ class AurumAgent:
         """
         logger.info(f"Cycle {session_id}: Starting")
 
-        # Determine starting timeframe: resume pending LTF drill-down if set,
-        # otherwise start fresh on H1 (primary SMC analysis timeframe).
-        if self._pending_timeframe:
-            current_timeframe = self._pending_timeframe
-            self._pending_timeframe = None
-            logger.info(f"Resuming pending timeframe: {current_timeframe}")
-            try:
-                self.mt4_bridge.set_timeframe("XAUUSD", current_timeframe)
-                time.sleep(0.5)
-            except Exception as e:
-                logger.warning(f"Could not set pending timeframe {current_timeframe}: {e}")
-        else:
-            try:
-                self.mt4_bridge.set_timeframe("XAUUSD", "H1")
-                time.sleep(0.5)
-            except Exception as e:
-                logger.warning(f"Could not set H1 at cycle start: {e}")
-            current_timeframe = "H1"
+        try:
+            self.mt4_bridge.set_timeframe("XAUUSD", "H1")
+            time.sleep(0.5)
+        except Exception as e:
+            logger.warning(f"Could not set H1 at cycle start: {e}")
+        current_timeframe = "H1"
 
         if self.tui:
             self.tui.set_status("Obteniendo datos de mercado…", cycle=cycle_num)
 
         candles = self.market_data_provider.fetch_all_candles()
         turn = 0
-        max_turns = 10
+        max_turns = 3
 
         while turn < max_turns:
             turn += 1
@@ -448,14 +435,6 @@ class AurumAgent:
                     self.flog.error(error_type, err, session_id=session_id, turn=turn)
                 self.storage.save_turn(session_id=session_id, role="system",
                                        content=f"Error calling Claude: {err}")
-                # If we timed out mid drill-down (turn > 1 means we already changed TF),
-                # preserve the current LTF so the next cycle resumes from it.
-                if is_timeout and turn > 1 and current_timeframe != "H1":
-                    self._pending_timeframe = current_timeframe
-                    logger.info(
-                        f"Timeout after CHANGE_TIMEFRAME — saving pending timeframe: "
-                        f"{current_timeframe}"
-                    )
                 return "timeout" if is_timeout else "error"
 
             action = response.get("action")
@@ -498,8 +477,6 @@ class AurumAgent:
             if cycle_done:
                 logger.info(f"Cycle {session_id}: Complete (action={action.get('action')})")
                 action_type = action.get("action", "")
-                # Clear any pending timeframe on normal cycle completion
-                self._pending_timeframe = None
                 if action_type in ("BUY", "SELL", "CLOSE", "MODIFY"):
                     return "order"
                 return "done"
@@ -814,34 +791,7 @@ class AurumAgent:
 
     @staticmethod
     def _trading_session(server_time: str, broker_gmt_offset: int = 0) -> str:
-        """Derive trading session name from MT4 server time string.
-
-        broker_gmt_offset: hours ahead of UTC (0=UTC, 2=EET winter, 3=EEST summer).
-        Labels match exactly what strategy/CLAUDE.md and the EA indicator use.
-        """
-        try:
-            hour = int(server_time[11:13])
-            minute = int(server_time[14:16])
-        except (TypeError, IndexError, ValueError):
-            return "Unknown"
-        gmt_mins = (hour * 60 + minute - broker_gmt_offset * 60) % (24 * 60)
-        h = gmt_mins // 60
-        m = gmt_mins % 60
-
-        # Kill Zones — exact institutional windows (match EA indicator defaults)
-        if h == 7 or (h == 8 and m < 30):                           # 07:00–08:30 UTC
-            return "London Kill Zone"
-        if (h == 13 and m >= 30) or h == 14:                        # 13:30–15:00 UTC
-            return "NY Kill Zone"
-        # Active sessions — Trend Follow eligible
-        if (h == 8 and m >= 30) or (9 <= h <= 12) or (h == 13 and m < 30):  # 08:30–13:30
-            return "London Active"
-        if 15 <= h <= 21:                                            # 15:00–22:00
-            return "NY Active"
-        # Low volatility — no new entries
-        if h < 7:
-            return "Asia"
-        return "Late NY"
+        return trading_session(server_time, broker_gmt_offset)
 
     def _build_analysis_prompt(
         self,
@@ -884,7 +834,7 @@ class AurumAgent:
         lines.append("""
 ## Chart Analysis
 Using your SMC 7-step framework: HTF bias → session filter → LTF structure → POI → liquidity → entry → R/R check.
-Use the Suggested Position Size above. Minimum R/R = 1.5 (orders below this are rejected by the system).
+Use the Suggested Position Size above. Minimum R/R = 1.2 (orders below this are rejected by the system).
 
 Respond with ONE action: BUY, SELL, CLOSE, MODIFY, CHANGE_TIMEFRAME, or DONE.
 IMPORTANT: Respond with ONLY a JSON object, no other text.""")
