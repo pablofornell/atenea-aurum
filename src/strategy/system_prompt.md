@@ -39,7 +39,8 @@ Respond ONLY with valid JSON. No text before or after. No markdown fences. No ex
   "sl": 0.00,
   "tp": 0.00,
   "confidence": 0.0,
-  "ticket_to_close": null
+  "ticket_to_close": null,
+  "next_call_minutes": 15
 }
 ```
 
@@ -51,3 +52,7 @@ Respond ONLY with valid JSON. No text before or after. No markdown fences. No ex
 - `tp`: absolute price for take profit (0.00 if WAIT/HOLD)
 - `confidence`: 0.0–1.0 reflecting true conviction
 - `ticket_to_close`: ticket number to close (CLOSE action), or null
+- `next_call_minutes`: when the system should consult you again — choose `5`, `15`, or `30`
+  - `5` — price is near a key level, a setup is forming, or a position is open and moving fast
+  - `15` — standard watch; mild momentum or waiting for confirmation
+  - `30` — low activity, Asian consolidation, or no setup in sight

@@ -34,7 +34,7 @@ class Scheduler:
                 continue
 
             try:
-                loop_fn()
+                next_tf = loop_fn() or 15
             except Exception as e:
                 if on_error:
                     try:
@@ -44,7 +44,7 @@ class Scheduler:
                 time.sleep(self.ERROR_BACKOFF)
                 continue
 
-            secs = self.secs_to_candle_close(15)
+            secs = self.secs_to_candle_close(next_tf)
             if on_sleep:
                 try:
                     on_sleep(secs)
