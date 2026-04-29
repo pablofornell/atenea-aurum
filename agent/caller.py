@@ -36,8 +36,8 @@ def call_agent(market_text: str, system_prompt: str, strategy_dir: str) -> dict:
 
     try:
         result = subprocess.run(
-            [config.CLAUDE_CLI, "--dangerously-skip-permissions", "--output-format", "json"],
-            input=full_prompt,
+            [config.CLAUDE_CLI, "-p", full_prompt,
+             "--dangerously-skip-permissions", "--output-format", "json"],
             capture_output=True,
             text=True,
             cwd=os.path.abspath(strategy_dir),
