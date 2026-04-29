@@ -1,4 +1,5 @@
 import sys
+import threading
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
@@ -67,6 +68,15 @@ def main():
         else:
             tui.set_state(f"Error: {type(exc).__name__}", str(exc)[:80])
 
+    _stop_poll = threading.Event()
+
+    def _poll_positions():
+        while not _stop_poll.wait(5.0):
+            try:
+                tui.update_positions(mt4.get_positions())
+            except Exception:
+                pass
+
     try:
         tui.start()
         logger.info("AURUM iniciando...")
@@ -77,11 +87,13 @@ def main():
             logger.error(str(e))
             tui.set_state("Sin conexión MT4 — reintentando en cada ciclo")
 
+        threading.Thread(target=_poll_positions, daemon=True, name="positions-poll").start()
         sched.run(cycle, on_sleep=on_sleep, on_error=on_error)
 
     except KeyboardInterrupt:
         pass
     finally:
+        _stop_poll.set()
         tui.stop()
 
 

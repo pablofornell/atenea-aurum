@@ -1,4 +1,5 @@
 import socket
+import threading
 import time
 
 
@@ -24,6 +25,7 @@ class MT4Client:
         self.host = host
         self.port = port
         self._sock: socket.socket | None = None
+        self._lock = threading.Lock()
 
     # ── connection ────────────────────────────────────────────────────────────
 
@@ -52,6 +54,10 @@ class MT4Client:
     # ── low-level transport ───────────────────────────────────────────────────
 
     def send_command(self, cmd: str) -> str:
+        with self._lock:
+            return self._send_command_locked(cmd)
+
+    def _send_command_locked(self, cmd: str) -> str:
         payload = (cmd.strip() + "\n").encode()
         for attempt in range(2):
             try:
