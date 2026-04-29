@@ -114,7 +114,13 @@ class _PositionsPanel(Static):
             return
         t = Text()
         for p in positions[:3]:
-            col  = "bright_green" if p.get("type") == "BUY" else "bright_red"
+            profit = p.get("profit", 0.0)
+            if profit > 0:
+                col = "bright_green"
+            elif profit < 0:
+                col = "bright_red"
+            else:
+                col = "white"
             line = (f"#{p['ticket']}  {p['type']}  {p['lots']} lots"
                     f"  open={p['open']:.2f}  SL={p['sl']:.2f}  TP={p['tp']:.2f}"
                     f"  P&L={p['profit']:+.2f}")

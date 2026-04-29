@@ -1,3 +1,4 @@
+import importlib
 import sys
 import threading
 from pathlib import Path
@@ -22,6 +23,7 @@ def main():
     cycle_num = [0]
 
     def cycle():
+        importlib.reload(config)
         n = cycle_num[0] + 1
         cycle_num[0] = n
 
