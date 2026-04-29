@@ -57,6 +57,10 @@ class AurumLogger:
         self._emit(f"AGENT — decision={action} confidence={conf:.2f}")
         if reason:
             self._emit(f"AGENT REASONING — {reason}")
+        dbg = decision.get("_debug")
+        if dbg:
+            self._emit(f"AGENT DEBUG — rc={dbg['returncode']} | stderr={dbg['stderr']!r}", "ERROR")
+            self._emit(f"AGENT DEBUG — raw_stdout={dbg['raw_stdout']!r}", "ERROR")
         self._emit(f"EXECUTOR — {result}")
         self._emit(f"CYCLE END ({elapsed:.1f}s)")
 

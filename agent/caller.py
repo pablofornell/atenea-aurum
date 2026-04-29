@@ -48,14 +48,36 @@ def call_agent(market_text: str, system_prompt: str, strategy_dir: str) -> dict:
     except FileNotFoundError:
         return {**_WAIT_RESPONSE, "reasoning": "claude_cli_not_found"}
 
-    raw = result.stdout.strip()
+    returncode = result.returncode
+    raw        = result.stdout.strip()
+    stderr     = result.stderr.strip()
 
-    # The claude CLI --output-format json wraps the response in a JSON envelope;
-    # extract the "result" field which contains the agent text.
+    def _fail(reason: str) -> dict:
+        return {
+            **_WAIT_RESPONSE,
+            "reasoning": reason,
+            "_debug": {
+                "returncode": returncode,
+                "stderr":     stderr[:500],
+                "raw_stdout": raw[:500],
+            },
+        }
+
+    if not raw:
+        return _fail(f"empty_stdout rc={returncode} stderr={stderr[:200]!r}")
+
+    # The claude CLI --output-format json wraps the response in a JSON envelope.
+    # Known envelope keys: "result" (success text), "is_error", "subtype".
+    envelope   = None
+    agent_text = raw
     try:
-        envelope = json.loads(raw)
-        agent_text = envelope.get("result", raw)
-    except (json.JSONDecodeError, AttributeError):
+        envelope   = json.loads(raw)
+        agent_text = envelope.get("result") or ""
+        if not agent_text:
+            is_err = envelope.get("is_error", False)
+            return _fail(f"empty_result in envelope is_error={is_err} keys={list(envelope.keys())}")
+    except json.JSONDecodeError:
+        # stdout is plain text, not a JSON envelope — use as-is
         agent_text = raw
 
     # Strip optional markdown fence
@@ -68,11 +90,12 @@ def call_agent(market_text: str, system_prompt: str, strategy_dir: str) -> dict:
 
     try:
         decision = json.loads(agent_text)
-    except json.JSONDecodeError:
-        return {**_WAIT_RESPONSE, "reasoning": f"json_parse_error: {agent_text[:200]}"}
+    except json.JSONDecodeError as exc:
+        return _fail(f"json_parse_error: {exc} | text={agent_text[:300]!r}")
 
     # Ensure all required keys are present
     for key, default in _WAIT_RESPONSE.items():
-        decision.setdefault(key, default)
+        if key != "_debug":
+            decision.setdefault(key, default)
 
     return decision
