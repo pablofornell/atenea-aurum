@@ -14,18 +14,19 @@ Bot de trading algorítmico para Gold/XAUUSD. Corre ciclos cada ~15 min: recoge 
 
 | Ruta | Responsabilidad |
 |---|---|
-| `aurum.py` | Punto de entrada. Orquesta el ciclo principal. |
-| `config.py` | Constantes globales (host MT4, símbolo, magic number). |
-| `scheduler.py` | Control de tiempo de ciclo, fin de semana, backoff de error. |
-| `tui.py` | Interfaz textual (textual). API: `TUI.start/stop/log/update_*`. |
-| `agent/caller.py` | Llama a `claude` CLI en subproceso, parsea JSON de vuelta. |
-| `bridge/mt4_client.py` | Cliente TCP para MT4. Lanza `MT4ConnectionError` si falla. |
-| `bridge/AURUM_Bridge.mq4` | Expert Advisor en MT4 que sirve el socket. |
-| `data/processor.py` | Construye el contexto de mercado y lo serializa para el prompt. |
-| `risk/executor.py` | Valida la decisión del agente y ejecuta órdenes en MT4. |
-| `logger.py` | `AurumLogger`: escribe a `logs/aurum.log` y al TUI simultáneamente. |
-| `strategy/system_prompt.md` | Prompt de sistema del agente. Editar para cambiar la estrategia. |
+| `aurum.py` | Punto de entrada. Añade `src/` al path y orquesta el ciclo. |
+| `src/config.py` | Constantes globales (host MT4, símbolo, magic number). |
+| `src/scheduler.py` | Control de tiempo de ciclo, fin de semana, backoff de error. |
+| `src/tui.py` | Interfaz textual (textual). API: `TUI.start/stop/log/update_*`. |
+| `src/logger.py` | `AurumLogger`: escribe a `logs/aurum.log` y al TUI simultáneamente. |
+| `src/agent/caller.py` | Llama a `claude` CLI en subproceso, parsea JSON de vuelta. |
+| `src/bridge/mt4_client.py` | Cliente TCP para MT4. Lanza `MT4ConnectionError` si falla. |
+| `src/bridge/AURUM_Bridge.mq4` | Expert Advisor en MT4 que sirve el socket. |
+| `src/data/processor.py` | Construye el contexto de mercado y lo serializa para el prompt. |
+| `src/risk/executor.py` | Valida la decisión del agente y ejecuta órdenes en MT4. |
+| `src/strategy/system_prompt.md` | Prompt de sistema del agente. Editar para cambiar la estrategia. |
 | `tests/` | Scripts de prueba manual. No requieren MT4 ni agente activo. |
+| `logs/` | Logs en runtime. Ignorados por git. |
 
 ## Comandos habituales
 

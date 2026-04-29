@@ -15,7 +15,7 @@ WEEKEND_SLEEP  = True   # sleep Fri 21:00 UTC → Sun 22:00 UTC
 
 # Agent
 CLAUDE_CLI     = "claude"
-STRATEGY_DIR   = "./strategy"
+STRATEGY_DIR   = "./src/strategy"
 MAX_TOKENS     = 1000
 
 # Data per cycle
