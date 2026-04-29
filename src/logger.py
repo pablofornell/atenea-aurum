@@ -23,8 +23,8 @@ class AurumLogger:
         os.makedirs(self.LOG_DIR, exist_ok=True)
 
         ts = _session_ts()
-        self._log_path       = os.path.join(self.LOG_DIR, f"session_{ts}.log")
-        self._decisions_path = os.path.join(self.LOG_DIR, f"decisions_{ts}.jsonl")
+        self._log_path       = os.path.join(self.LOG_DIR, f"aurum_session_{ts}.log")
+        self._decisions_path = os.path.join(self.LOG_DIR, f"aurum_decisions_{ts}.jsonl")
         self._cycle_start: float = 0.0
 
         fmt     = logging.Formatter("[%(asctime)s] %(message)s", datefmt="%H:%M:%S")
