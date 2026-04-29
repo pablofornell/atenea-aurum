@@ -5,34 +5,43 @@ import time
 from datetime import datetime, timezone
 
 
+def _session_ts() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
+
+
+class _LineBufferedFileHandler(logging.FileHandler):
+    """FileHandler con buffering=1 (line-buffered): cada línea llega al disco al instante."""
+    def _open(self):
+        return open(self.baseFilename, self.mode, buffering=1, encoding=self.encoding)
+
+
 class AurumLogger:
-    LOG_DIR        = "./logs"
-    LOG_FILE       = "aurum.log"
-    DECISIONS_FILE = "decisions.jsonl"
+    LOG_DIR = "./logs"
 
     def __init__(self, tui=None):
         self._tui = tui
         os.makedirs(self.LOG_DIR, exist_ok=True)
-        log_path = os.path.join(self.LOG_DIR, self.LOG_FILE)
 
-        fmt          = logging.Formatter("[%(asctime)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
-        file_handler = logging.FileHandler(log_path, encoding="utf-8")
-        file_handler.setFormatter(fmt)
-
-        self._log = logging.getLogger("aurum")
-        self._log.setLevel(logging.DEBUG)
-        if not self._log.handlers:
-            self._log.addHandler(file_handler)
-            if not tui:
-                # when TUI is active, stdout belongs to curses — no StreamHandler
-                console = logging.StreamHandler()
-                console.setFormatter(fmt)
-                self._log.addHandler(console)
-
-        self._decisions_path = os.path.join(self.LOG_DIR, self.DECISIONS_FILE)
+        ts = _session_ts()
+        self._log_path       = os.path.join(self.LOG_DIR, f"session_{ts}.log")
+        self._decisions_path = os.path.join(self.LOG_DIR, f"decisions_{ts}.jsonl")
         self._cycle_start: float = 0.0
 
-    # ── public log API ────────────────────────────────────────────────────────
+        fmt     = logging.Formatter("[%(asctime)s] %(message)s", datefmt="%H:%M:%S")
+        handler = _LineBufferedFileHandler(self._log_path, encoding="utf-8")
+        handler.setFormatter(fmt)
+
+        self._log = logging.getLogger(f"aurum.{ts}")
+        self._log.setLevel(logging.DEBUG)
+        self._log.propagate = False
+        self._log.addHandler(handler)
+
+        if not tui:
+            console = logging.StreamHandler()
+            console.setFormatter(fmt)
+            self._log.addHandler(console)
+
+    # ── public API ────────────────────────────────────────────────────────────
 
     def info(self, msg: str):
         self._emit(msg, "INFO")
@@ -42,7 +51,7 @@ class AurumLogger:
 
     def cycle_start(self):
         self._cycle_start = time.time()
-        self._emit("CYCLE START", "INFO")
+        self._emit("CYCLE START")
 
     def log_cycle(self, context: dict, decision: dict, result: str):
         elapsed = time.time() - self._cycle_start if self._cycle_start else 0.0
@@ -84,5 +93,5 @@ class AurumLogger:
             "decision": decision,
             "result":   result,
         }
-        with open(self._decisions_path, "a", encoding="utf-8") as f:
+        with open(self._decisions_path, "a", buffering=1, encoding="utf-8") as f:
             f.write(json.dumps(record) + "\n")
