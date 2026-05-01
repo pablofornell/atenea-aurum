@@ -2,11 +2,10 @@ from bridge.mt4_client import MT4Client
 
 
 # XAUUSD pip values
-_PIP_SIZE      = 0.10   # 1 pip = $0.10 per 0.01 lot
-_LOTS_MIN      = 0.01
-_LOTS_MAX      = 5.00
-_MIN_CONFIDENCE = 0.60
-_DD_GUARD       = 0.95  # equity / balance threshold
+_PIP_SIZE = 0.10   # 1 pip = $0.10 per 0.01 lot
+_LOTS_MIN = 0.01
+_LOTS_MAX = 5.00
+_DD_GUARD = 0.95   # equity / balance threshold
 
 
 def execute(decision: dict, context: dict, mt4: MT4Client, cfg) -> str:
@@ -14,11 +13,6 @@ def execute(decision: dict, context: dict, mt4: MT4Client, cfg) -> str:
     acc    = context["account"]
     pos    = context["positions"]
     symbol = cfg.SYMBOL
-
-    # Confidence gate
-    confidence = float(decision.get("confidence", 0.0))
-    if confidence < _MIN_CONFIDENCE and action not in ("CLOSE", "HOLD", "WAIT"):
-        return f"WAIT: confidence {confidence:.2f} < {_MIN_CONFIDENCE}"
 
     if action == "WAIT" or action == "HOLD":
         return f"{action}: no action"
@@ -28,7 +22,6 @@ def execute(decision: dict, context: dict, mt4: MT4Client, cfg) -> str:
         if ticket:
             ok = mt4.close(int(ticket))
             return f"CLOSE ticket={ticket} ok={ok}"
-        # Close all positions with our magic number
         closed = []
         for p in pos:
             if mt4.close(p["ticket"]):
@@ -59,10 +52,6 @@ def execute(decision: dict, context: dict, mt4: MT4Client, cfg) -> str:
     entry = ask if action == "BUY" else bid
 
     sl_pips = abs(entry - sl) / _PIP_SIZE
-    if sl_pips < cfg.MIN_SL_PIPS:
-        return f"WAIT: SL too tight ({sl_pips:.1f} pips < {cfg.MIN_SL_PIPS})"
-    if sl_pips > cfg.MAX_SL_PIPS:
-        return f"WAIT: SL too wide ({sl_pips:.1f} pips > {cfg.MAX_SL_PIPS})"
 
     # Broker stop level
     try:

@@ -4,10 +4,8 @@ MT4_PORT       = 5555
 MAGIC_NUMBER   = 20240101
 
 # Risk — NEVER delegated to the agent
-MAX_RISK_PCT    = 1.0   # % of balance per trade
+MAX_RISK_PCT    = 4   # % of balance per trade
 MAX_OPEN_TRADES = 1     # max simultaneous positions
-MIN_SL_PIPS     = 15    # min SL in pips (xau: 1 pip = 0.10 USD)
-MAX_SL_PIPS     = 150   # max SL in pips
 
 # Cycle
 CYCLE_SECONDS  = 60     # seconds between cycles (synced to M15 candle close)

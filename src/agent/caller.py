@@ -42,6 +42,7 @@ def call_agent(market_text: str, system_prompt: str, strategy_dir: str) -> dict:
              "--dangerously-skip-permissions", "--output-format", "json"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
             cwd=os.path.abspath(strategy_dir),
             timeout=120,
         )
