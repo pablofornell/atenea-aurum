@@ -44,7 +44,7 @@ def call_agent(market_text: str, system_prompt: str, strategy_dir: str) -> dict:
             text=True,
             encoding="utf-8",
             cwd=os.path.abspath(strategy_dir),
-            timeout=120,
+            timeout=180,
         )
     except subprocess.TimeoutExpired:
         return {**_WAIT_RESPONSE, "reasoning": "agent_timeout"}
