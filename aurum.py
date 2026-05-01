@@ -20,7 +20,8 @@ def main():
     mt4    = MT4Client(config.MT4_HOST, config.MT4_PORT)
     sched  = Scheduler()
 
-    cycle_num = [0]
+    cycle_num   = [0]
+    last_result = [None]
 
     def cycle():
         importlib.reload(config)
@@ -36,9 +37,9 @@ def main():
         tui.update_market(context)
         tui.update_positions(context["positions"])
 
-        # Phase 2 — agent
+        # Phase 2 — agent (receives last cycle result so it can react to errors)
         tui.set_state("Consultando agente...", f"Ciclo {n}  ·  Turno 2/3")
-        market_text   = serialize_for_prompt(context)
+        market_text   = serialize_for_prompt(context, last_result=last_result[0])
         system_prompt = open(f"{config.STRATEGY_DIR}/system_prompt.md", encoding="utf-8").read()
         decision      = call_agent(market_text, system_prompt, config.STRATEGY_DIR)
         tui.update_decision(decision)
@@ -46,6 +47,7 @@ def main():
         # Phase 3 — execution
         tui.set_state("Ejecutando...", f"Ciclo {n}  ·  Turno 3/3")
         result = execute(decision, context, mt4, config)
+        last_result[0] = result
 
         logger.log_cycle(context, decision, result)
 

@@ -197,6 +197,11 @@ class MT4Client:
         resp = self.send_command(f"GET_STOPLEVEL|{symbol}")
         return float(resp)
 
+    def get_symbol_info(self, symbol: str) -> dict:
+        resp = self.send_command(f"GET_SYMBOL_INFO|{symbol}")
+        f = resp.split(",")
+        return {"min_lot": float(f[0]), "max_lot": float(f[1]), "lot_step": float(f[2])}
+
     def buy(self, symbol: str, lots: float, sl: float, tp: float) -> int:
         resp = self.send_command(f"BUY|{symbol}|{lots}|{sl}|{tp}")
         return int(resp)

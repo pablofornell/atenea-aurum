@@ -242,7 +242,25 @@ string ProcessCommand(string raw)
 
       int ticket = OrderSend(sym, op, lots, price, 3, sl, tp, "AURUM", MAGIC_NUMBER, 0, clrNONE);
       if (ticket < 0) {
-         return "ERROR|ordersend_failed|" + IntegerToString(GetLastError());
+         int err = GetLastError();
+         string err_name;
+         switch(err) {
+            case 4109: err_name = "autotrading_disabled"; break;
+            case 134:  err_name = "not_enough_money";     break;
+            case 131:  err_name = "invalid_volume";       break;
+            case 130:  err_name = "invalid_stops";        break;
+            case 146:  err_name = "trade_context_busy";   break;
+            case 135:  err_name = "price_changed";        break;
+            case 138:  err_name = "requote";              break;
+            case 132:  err_name = "market_closed";        break;
+            case 133:  err_name = "trade_disabled";       break;
+            case 140:  err_name = "long_positions_only";  break;
+            case 148:  err_name = "too_many_orders";      break;
+            case 136:  err_name = "off_quotes";           break;
+            case 141:  err_name = "too_many_requests";    break;
+            default:   err_name = "err_" + IntegerToString(err); break;
+         }
+         return "ERROR|ordersend_failed|" + IntegerToString(err) + "|" + err_name;
       }
       return "OK|" + IntegerToString(ticket);
    }
@@ -381,6 +399,20 @@ string ProcessCommand(string raw)
                       DoubleToString(pw_low,  2) + "," +
                       DoubleToString(cw_high, 2) + "," +
                       DoubleToString(cw_low,  2);
+      return "OK|" + result;
+   }
+
+   //--- GET_SYMBOL_INFO  |  GET_SYMBOL_INFO|XAUUSD
+   if (cmd == "GET_SYMBOL_INFO") {
+      if (n < 2) return "ERROR|missing_symbol";
+      string sym = parts[1];
+      double min_lot  = MarketInfo(sym, MODE_MINLOT);
+      double max_lot  = MarketInfo(sym, MODE_MAXLOT);
+      double lot_step = MarketInfo(sym, MODE_LOTSTEP);
+      if (min_lot <= 0) return "ERROR|symbol_info_unavailable";
+      string result = DoubleToString(min_lot, 2) + "," +
+                      DoubleToString(max_lot, 2) + "," +
+                      DoubleToString(lot_step, 2);
       return "OK|" + result;
    }
 

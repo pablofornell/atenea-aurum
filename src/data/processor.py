@@ -48,7 +48,7 @@ def build_context(mt4: MT4Client) -> dict:
     }
 
 
-def serialize_for_prompt(ctx: dict) -> str:
+def serialize_for_prompt(ctx: dict, last_result: str | None = None) -> str:
     p       = ctx["price"]
     d       = ctx["day_ohlc"]
     w       = ctx["week_hl"]
@@ -94,5 +94,9 @@ def serialize_for_prompt(ctx: dict) -> str:
         f" | Equity {acc['equity']:.2f}"
         f" | Free margin {acc['free_margin']:.2f}"
     )
+
+    if last_result:
+        lines.append("")
+        lines.append(f"LAST CYCLE RESULT: {last_result}")
 
     return "\n".join(lines)
