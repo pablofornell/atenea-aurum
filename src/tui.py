@@ -197,6 +197,7 @@ _CSS = """
 Screen {
     background: #0d0d0d;
     color: white;
+    scrollbar-size: 0 0;
 }
 
 #header {
@@ -244,6 +245,7 @@ Screen {
     border: solid cyan;
     border-title-color: ansi_bright_cyan;
     padding: 0 1;
+    scrollbar-size: 0 0;
 }
 
 #positions.has-positions {
@@ -269,7 +271,8 @@ class _AurumApp(App[None]):
         yield _PositionsPanel(id="positions")
         yield _DecisionPanel(id="decision")
         yield _TimerPanel(id="timer")
-        yield RichLog(id="activity", markup=True, highlight=False, wrap=False)
+        yield RichLog(id="activity", markup=True, highlight=False, wrap=False,
+                      auto_scroll=True)
 
     def on_mount(self) -> None:
         self.query_one("#header", _Header).refresh_display()
