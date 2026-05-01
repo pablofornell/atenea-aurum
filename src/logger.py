@@ -10,7 +10,7 @@ def _session_ts() -> str:
 
 
 class _LineBufferedFileHandler(logging.FileHandler):
-    """FileHandler con buffering=1 (line-buffered): cada línea llega al disco al instante."""
+    """FileHandler with buffering=1 (line-buffered): each line is flushed to disk immediately."""
     def _open(self):
         return open(self.baseFilename, self.mode, buffering=1, encoding=self.encoding)
 

@@ -42,12 +42,12 @@ class _Header(Static):
 
 class _AccountPanel(Static):
     def on_mount(self) -> None:
-        self.border_title = "CUENTA"
-        self.update(Text("Sin conexión MT4", style="red italic"))
+        self.border_title = "ACCOUNT"
+        self.update(Text("No MT4 connection", style="red italic"))
 
     def set_data(self, account: dict, connected: bool) -> None:
         if not connected or not account:
-            self.update(Text("Sin conexión MT4", style="red italic"))
+            self.update(Text("No MT4 connection", style="red italic"))
             return
         a = account
         t = Text()
@@ -59,31 +59,31 @@ class _AccountPanel(Static):
 
 class _MarketPanel(Static):
     def on_mount(self) -> None:
-        self.border_title = "MERCADO"
-        self.update(Text("Sin datos de mercado", style="dim italic"))
+        self.border_title = "MARKET"
+        self.update(Text("No market data", style="dim italic"))
 
     def set_data(self, market: dict) -> None:
         if not market:
-            self.update(Text("Sin datos de mercado", style="dim italic"))
+            self.update(Text("No market data", style="dim italic"))
             return
         ctx = market
         p   = ctx.get("price", {})
         d   = ctx.get("day_ohlc", {})
         t   = Text()
         t.append(f"Bid {p.get('bid', 0):.2f}  Ask {p.get('ask', 0):.2f}  Spread {p.get('spread', 0):.2f}\n")
-        t.append(f"ATR(H1,14) {ctx.get('atr_h1', 0):.2f}   Sesión: {ctx.get('session', '-')}\n")
+        t.append(f"ATR(H1,14) {ctx.get('atr_h1', 0):.2f}   Session: {ctx.get('session', '-')}\n")
         t.append(f"Prev  H:{d.get('prev_high', 0):.2f}  L:{d.get('prev_low', 0):.2f}  C:{d.get('prev_close', 0):.2f}\n")
-        t.append(f"Hoy O:{d.get('today_open', 0):.2f}")
+        t.append(f"Today O:{d.get('today_open', 0):.2f}")
         self.update(t)
 
 
 class _StatusPanel(Static):
     def on_mount(self) -> None:
-        self.border_title = "ESTADO"
-        self.update(Text("Iniciando...", style="yellow"))
+        self.border_title = "STATUS"
+        self.update(Text("Starting...", style="yellow"))
 
     def set_data(self, state: str, sub: str) -> None:
-        if "Esperando" in state or state == "OK":
+        if "Waiting" in state or state == "OK":
             dot_style = "bright_green"
         elif "Error" in state or "error" in state:
             dot_style = "bright_red"
@@ -99,18 +99,18 @@ class _StatusPanel(Static):
 
 class _PositionsPanel(Static):
     def on_mount(self) -> None:
-        self.border_title = "POSICIONES ABIERTAS  (0)"
-        self.update(Text("Sin posiciones abiertas", style="dim italic"))
+        self.border_title = "OPEN POSITIONS  (0)"
+        self.update(Text("No open positions", style="dim italic"))
 
     def set_data(self, positions: list) -> None:
         n = len(positions)
-        self.border_title = f"POSICIONES ABIERTAS  ({n})"
+        self.border_title = f"OPEN POSITIONS  ({n})"
         if n:
             self.add_class("has-positions")
         else:
             self.remove_class("has-positions")
         if not positions:
-            self.update(Text("Sin posiciones abiertas", style="dim italic"))
+            self.update(Text("No open positions", style="dim italic"))
             return
         t = Text()
         for p in positions[:3]:
@@ -130,12 +130,12 @@ class _PositionsPanel(Static):
 
 class _DecisionPanel(Static):
     def on_mount(self) -> None:
-        self.border_title = "ULTIMA DECISION"
-        self.update(Text("Sin decisiones aún", style="dim italic"))
+        self.border_title = "LAST DECISION"
+        self.update(Text("No decisions yet", style="dim italic"))
 
     def set_data(self, decision: dict) -> None:
         if not decision:
-            self.update(Text("Sin decisiones aún", style="dim italic"))
+            self.update(Text("No decisions yet", style="dim italic"))
             return
         d      = decision
         ts     = d.get("_ts", "")
@@ -155,7 +155,7 @@ class _TimerPanel(Static):
     _t_total: float = 900.0
 
     def on_mount(self) -> None:
-        self.border_title = "PROXIMO CICLO"
+        self.border_title = "NEXT CYCLE"
         self.set_interval(0.1, self._tick)
 
     def start_timer(self, total_secs: float) -> None:
@@ -210,7 +210,7 @@ Screen {
     width: 100%;
 }
 
-#cuenta, #mercado, #estado {
+#account, #market, #status {
     width: 1fr;
     height: 100%;
     border: solid cyan;
@@ -218,7 +218,7 @@ Screen {
     padding: 0 1;
 }
 
-#posiciones {
+#positions {
     height: 5;
     border: solid cyan;
     border-title-color: ansi_bright_cyan;
@@ -239,14 +239,14 @@ Screen {
     padding: 0 1;
 }
 
-#actividad {
+#activity {
     height: 1fr;
     border: solid cyan;
     border-title-color: ansi_bright_cyan;
     padding: 0 1;
 }
 
-#posiciones.has-positions {
+#positions.has-positions {
     border: solid lime;
     border-title-color: ansi_bright_green;
 }
@@ -263,17 +263,17 @@ class _AurumApp(App[None]):
     def compose(self) -> ComposeResult:
         yield _Header(id="header")
         with Horizontal(id="top-row"):
-            yield _AccountPanel(id="cuenta")
-            yield _MarketPanel(id="mercado")
-            yield _StatusPanel(id="estado")
-        yield _PositionsPanel(id="posiciones")
+            yield _AccountPanel(id="account")
+            yield _MarketPanel(id="market")
+            yield _StatusPanel(id="status")
+        yield _PositionsPanel(id="positions")
         yield _DecisionPanel(id="decision")
         yield _TimerPanel(id="timer")
-        yield RichLog(id="actividad", markup=True, highlight=False, wrap=False)
+        yield RichLog(id="activity", markup=True, highlight=False, wrap=False)
 
     def on_mount(self) -> None:
         self.query_one("#header", _Header).refresh_display()
-        self.query_one("#actividad").border_title = "ACTIVIDAD"
+        self.query_one("#activity").border_title = "ACTIVITY"
         self._ready_event.set()
 
 
@@ -335,15 +335,15 @@ class TUI:
     def update_account(self, acct: dict) -> None:
         self._connected = True
         _a = acct
-        self._call(lambda: self._app.query_one("#cuenta", _AccountPanel).set_data(_a, True))
+        self._call(lambda: self._app.query_one("#account", _AccountPanel).set_data(_a, True))
 
     def update_market(self, ctx: dict) -> None:
         _c = ctx
-        self._call(lambda: self._app.query_one("#mercado", _MarketPanel).set_data(_c))
+        self._call(lambda: self._app.query_one("#market", _MarketPanel).set_data(_c))
 
     def update_positions(self, pos: list) -> None:
         _p = list(pos)
-        self._call(lambda: self._app.query_one("#posiciones", _PositionsPanel).set_data(_p))
+        self._call(lambda: self._app.query_one("#positions", _PositionsPanel).set_data(_p))
 
     def update_decision(self, dec: dict) -> None:
         ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
@@ -352,11 +352,11 @@ class TUI:
 
     def set_state(self, text: str, sub: str = "") -> None:
         _t, _s = text, sub
-        self._call(lambda: self._app.query_one("#estado", _StatusPanel).set_data(_t, _s))
+        self._call(lambda: self._app.query_one("#status", _StatusPanel).set_data(_t, _s))
 
     def set_disconnected(self) -> None:
         self._connected = False
-        self._call(lambda: self._app.query_one("#cuenta", _AccountPanel).set_data({}, False))
+        self._call(lambda: self._app.query_one("#account", _AccountPanel).set_data({}, False))
 
     def start_timer(self, cycle_num: int, total_secs: float) -> None:
         _ts = float(total_secs)
@@ -374,6 +374,6 @@ class TUI:
         t.append(msg, style=col)
 
         def _write() -> None:
-            self._app.query_one("#actividad", RichLog).write(t)
+            self._app.query_one("#activity", RichLog).write(t)
 
         self._call(_write)

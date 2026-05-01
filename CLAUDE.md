@@ -1,43 +1,43 @@
 # AURUM
 
-Bot de trading algorítmico para Gold/XAUUSD. Corre ciclos cada ~15 min: recoge datos de MT4, consulta a Claude como agente, ejecuta la decisión via risk manager.
+Algorithmic trading bot for Gold/XAUUSD. Runs cycles every ~15 min: collects data from MT4, consults Claude as an agent, executes the decision via the risk manager.
 
-**Desarrollador:** Pablo Fornell — pablo.fornell.perinan@gmail.com
+**Developer:** Pablo Fornell — pablo.fornell.perinan@gmail.com
 
 ## Stack
 
 - Python 3.13, textual (TUI), rich
-- Claude API invocado como subproceso (`agent/caller.py` llama `claude` CLI)
-- MT4 vía socket TCP (puente MQL4 ↔ Python en `bridge/`)
+- Claude API invoked as a subprocess (`agent/caller.py` calls the `claude` CLI)
+- MT4 via TCP socket (MQL4 ↔ Python bridge in `bridge/`)
 
-## Mapa de carpetas
+## Folder map
 
-| Ruta | Responsabilidad |
+| Path | Responsibility |
 |---|---|
-| `aurum.py` | Punto de entrada. Añade `src/` al path y orquesta el ciclo. |
-| `src/config.py` | Constantes globales (host MT4, símbolo, magic number). |
-| `src/scheduler.py` | Control de tiempo de ciclo, fin de semana, backoff de error. |
-| `src/tui.py` | Interfaz textual (textual). API: `TUI.start/stop/log/update_*`. |
-| `src/logger.py` | `AurumLogger`: escribe a `logs/aurum.log` y al TUI simultáneamente. |
-| `src/agent/caller.py` | Llama a `claude` CLI en subproceso, parsea JSON de vuelta. |
-| `src/bridge/mt4_client.py` | Cliente TCP para MT4. Lanza `MT4ConnectionError` si falla. |
-| `src/bridge/AURUM_Bridge.mq4` | Expert Advisor en MT4 que sirve el socket. |
-| `src/data/processor.py` | Construye el contexto de mercado y lo serializa para el prompt. |
-| `src/risk/executor.py` | Valida la decisión del agente y ejecuta órdenes en MT4. |
-| `src/strategy/system_prompt.md` | Prompt de sistema del agente. Editar para cambiar la estrategia. |
-| `tests/` | Scripts de prueba manual. No requieren MT4 ni agente activo. |
-| `logs/` | Logs en runtime. Ignorados por git. |
+| `aurum.py` | Entry point. Adds `src/` to the path and orchestrates the cycle. |
+| `src/config.py` | Global constants (MT4 host, symbol, magic number). |
+| `src/scheduler.py` | Cycle timing control, weekend sleep, error backoff. |
+| `src/tui.py` | Textual terminal interface. API: `TUI.start/stop/log/update_*`. |
+| `src/logger.py` | `AurumLogger`: writes to `logs/aurum.log` and the TUI simultaneously. |
+| `src/agent/caller.py` | Calls the `claude` CLI in a subprocess, parses JSON response. |
+| `src/bridge/mt4_client.py` | TCP client for MT4. Raises `MT4ConnectionError` on failure. |
+| `src/bridge/AURUM_Bridge.mq4` | Expert Advisor in MT4 that serves the socket. |
+| `src/data/processor.py` | Builds the market context and serializes it for the prompt. |
+| `src/risk/executor.py` | Validates the agent decision and executes orders in MT4. |
+| `src/strategy/system_prompt.md` | Agent system prompt. Edit to change the strategy. |
+| `tests/` | Manual test scripts. Do not require MT4 or an active agent. |
+| `logs/` | Runtime logs. Ignored by git. |
 
-## Comandos habituales
+## Common commands
 
 ```bash
-python aurum.py          # arrancar el bot
-python tests/tui_demo.py # previsualizar el TUI con datos simulados
+python aurum.py          # start the bot
+python tests/tui_demo.py # preview the TUI with simulated data
 ```
 
-## Convenciones
+## Conventions
 
-- El agente devuelve JSON con `decision` ∈ {BUY, SELL, WAIT, CLOSE}.
-- `confidence < 0.60` → executor fuerza WAIT sin abrir posición.
-- Un solo símbolo (XAUUSD). Sin multiposición simultánea por diseño.
-- Logs estructurados en `logs/aurum.log` (rotación manual).
+- The agent returns JSON with `decision` ∈ {BUY, SELL, WAIT, CLOSE}.
+- `confidence < 0.60` → executor forces WAIT without opening a position.
+- Single symbol (XAUUSD). No simultaneous multi-position by design.
+- Structured logs in `logs/aurum.log` (manual rotation).

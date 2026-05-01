@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Demo visual del TUI — sin MT4 ni agente.
-Ejecutar: python tests/tui_demo.py
+Visual TUI demo — no MT4 or agent required.
+Run: python tests/tui_demo.py
 """
 import sys
 import time
@@ -69,15 +69,15 @@ LOG_ENTRIES = [
 
 
 def run_demo(tui: TUI) -> None:
-    # fase 1: sin conexión inicial
-    tui.set_state("Conectando a MT4...", "Ciclo 0")
+    # phase 1: initial connection
+    tui.set_state("Connecting to MT4...", "Cycle 0")
     time.sleep(0.8)
 
-    # fase 2: datos de cuenta y mercado
+    # phase 2: account and market data
     tui.update_account(ACCOUNT)
     tui.update_market(MARKET)
     tui.update_positions([])
-    tui.set_state("Recopilando datos...", "Ciclo 1  ·  Turno 1/3")
+    tui.set_state("Collecting data...", "Cycle 1  ·  Step 1/3")
 
     for msg, lvl in LOG_ENTRIES[:3]:
         tui.log(msg, lvl)
@@ -85,8 +85,8 @@ def run_demo(tui: TUI) -> None:
 
     time.sleep(0.4)
 
-    # fase 3: decisión del agente
-    tui.set_state("Consultando agente...", "Ciclo 1  ·  Turno 2/3")
+    # phase 3: agent decision
+    tui.set_state("Querying agent...", "Cycle 1  ·  Step 2/3")
     tui.log(LOG_ENTRIES[3][0], LOG_ENTRIES[3][1])
     time.sleep(0.8)
 
@@ -99,17 +99,17 @@ def run_demo(tui: TUI) -> None:
         ),
     })
 
-    # fase 4: ejecución con posición abierta
-    tui.set_state("Ejecutando...", "Ciclo 1  ·  Turno 3/3")
+    # phase 4: execution with open position
+    tui.set_state("Executing...", "Cycle 1  ·  Step 3/3")
     time.sleep(0.4)
     tui.update_positions(POSITIONS)
     tui.log(LOG_ENTRIES[4][0], LOG_ENTRIES[4][1])
     tui.log(LOG_ENTRIES[5][0], LOG_ENTRIES[5][1])
     time.sleep(0.3)
 
-    # fase 5: ciclo 2 con timer
+    # phase 5: cycle 2 with timer
     cycle_secs = 30
-    tui.set_state("Esperando próximo ciclo...", "Ciclo 1  ·  Turno 1/3")
+    tui.set_state("Waiting for next cycle...", "Cycle 1  ·  Step 1/3")
     tui.start_timer(1, cycle_secs)
     tui.log(f"Sleeping {cycle_secs}s until next cycle", "INFO")
 
@@ -117,11 +117,11 @@ def run_demo(tui: TUI) -> None:
         tui.log(msg, lvl)
         time.sleep(0.08)
 
-    # fase 6: ciclo 2
-    tui.set_state("Recopilando datos...", "Ciclo 2  ·  Turno 1/3")
+    # phase 6: cycle 2
+    tui.set_state("Collecting data...", "Cycle 2  ·  Step 1/3")
     tui.update_market({**MARKET, "price": {"bid": 4555.71, "ask": 4556.04, "spread": 0.33}})
     time.sleep(0.3)
-    tui.set_state("Consultando agente...", "Ciclo 2  ·  Turno 2/3")
+    tui.set_state("Querying agent...", "Cycle 2  ·  Step 2/3")
     time.sleep(0.6)
     tui.update_decision({
         "decision": "WAIT",
@@ -130,10 +130,10 @@ def run_demo(tui: TUI) -> None:
             "Waiting for TP at 4530 or stop condition."
         ),
     })
-    tui.set_state("Esperando próximo ciclo...", "Ciclo 2  ·  Turno 1/3")
+    tui.set_state("Waiting for next cycle...", "Cycle 2  ·  Step 1/3")
     tui.start_timer(2, 806)
 
-    # dejar el timer corriendo para que se vea la barra en movimiento
+    # leave timer running so the progress bar stays animated
     try:
         while True:
             time.sleep(1)

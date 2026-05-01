@@ -31,21 +31,21 @@ def main():
         logger.cycle_start()
 
         # Phase 1 — data collection
-        tui.set_state("Recopilando datos...", f"Ciclo {n}  ·  Turno 1/3")
+        tui.set_state("Collecting data...", f"Cycle {n}  ·  Step 1/3")
         context = build_context(mt4)
         tui.update_account(context["account"])
         tui.update_market(context)
         tui.update_positions(context["positions"])
 
         # Phase 2 — agent (receives last cycle result so it can react to errors)
-        tui.set_state("Consultando agente...", f"Ciclo {n}  ·  Turno 2/3")
+        tui.set_state("Querying agent...", f"Cycle {n}  ·  Step 2/3")
         market_text   = serialize_for_prompt(context, last_result=last_result[0])
         system_prompt = open(f"{config.STRATEGY_DIR}/system_prompt.md", encoding="utf-8").read()
         decision      = call_agent(market_text, system_prompt, config.STRATEGY_DIR)
         tui.update_decision(decision)
 
         # Phase 3 — execution
-        tui.set_state("Ejecutando...", f"Ciclo {n}  ·  Turno 3/3")
+        tui.set_state("Executing...", f"Cycle {n}  ·  Step 3/3")
         result = execute(decision, context, mt4, config)
         last_result[0] = result
 
@@ -56,11 +56,11 @@ def main():
     def on_sleep(secs, weekend=False):
         n = cycle_num[0]
         if weekend:
-            tui.set_state("Fin de semana — mercado cerrado",
-                          f"Ciclo {n}")
+            tui.set_state("Weekend — market closed",
+                          f"Cycle {n}")
         else:
-            tui.set_state("Esperando próximo ciclo...",
-                          f"Ciclo {n}  ·  Turno 1/3")
+            tui.set_state("Waiting for next cycle...",
+                          f"Cycle {n}  ·  Step 1/3")
         tui.start_timer(n, secs)
         logger.info(f"Sleeping {secs:.1f}s until next cycle")
 
@@ -68,7 +68,7 @@ def main():
         logger.error(str(exc))
         if isinstance(exc, MT4ConnectionError):
             tui.set_disconnected()
-            tui.set_state("Sin conexión MT4", str(exc)[:80])
+            tui.set_state("No MT4 connection", str(exc)[:80])
         else:
             tui.set_state(f"Error: {type(exc).__name__}", str(exc)[:80])
 
@@ -83,13 +83,13 @@ def main():
 
     try:
         tui.start()
-        logger.info("AURUM iniciando...")
+        logger.info("AURUM starting...")
 
         try:
             mt4.connect()
         except MT4ConnectionError as e:
             logger.error(str(e))
-            tui.set_state("Sin conexión MT4 — reintentando en cada ciclo")
+            tui.set_state("No MT4 connection — retrying each cycle")
 
         threading.Thread(target=_poll_positions, daemon=True, name="positions-poll").start()
         sched.run(cycle, on_sleep=on_sleep, on_error=on_error)
