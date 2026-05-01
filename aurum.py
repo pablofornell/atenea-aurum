@@ -51,8 +51,6 @@ def main():
 
         logger.log_cycle(context, decision, result)
 
-        return decision.get("next_call_minutes", 15)
-
     def on_sleep(secs, weekend=False):
         n = cycle_num[0]
         if weekend:

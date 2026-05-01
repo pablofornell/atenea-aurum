@@ -257,6 +257,13 @@ Screen {
 
 class _AurumApp(App[None]):
     CSS = _CSS
+    BINDINGS = [
+        ("ctrl+c", "quit", "Quit"),
+        ("ctrl+q", "noop", ""),
+    ]
+
+    def action_noop(self) -> None:
+        pass
 
     def __init__(self, ready: threading.Event) -> None:
         super().__init__()

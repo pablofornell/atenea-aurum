@@ -3,8 +3,9 @@ from datetime import datetime, timezone
 
 
 class Scheduler:
-    WEEKEND_POLL  = 60    # seconds between checks during weekend sleep
-    ERROR_BACKOFF = 30    # seconds to wait after a non-fatal error
+    CYCLE_INTERVAL = 900  # 15 minutes between cycles
+    WEEKEND_POLL   = 60   # seconds between checks during weekend sleep
+    ERROR_BACKOFF  = 30   # seconds to wait after a non-fatal error
 
     def is_weekend_sleep(self) -> bool:
         now = datetime.now(timezone.utc)
@@ -18,15 +19,6 @@ class Scheduler:
             return True
         return False
 
-    def secs_to_candle_close(self, tf_minutes: int = 15) -> float:
-        now       = datetime.now(timezone.utc)
-        total_s   = now.minute * 60 + now.second + now.microsecond / 1_000_000
-        period    = tf_minutes * 60
-        remaining = period - (total_s % period)
-        if remaining < 5:
-            remaining += period
-        return remaining
-
     def run(self, loop_fn, on_sleep=None, on_error=None):
         while True:
             if self.is_weekend_sleep():
@@ -34,7 +26,7 @@ class Scheduler:
                 continue
 
             try:
-                next_tf = loop_fn() or 15
+                loop_fn()
             except Exception as e:
                 if on_error:
                     try:
@@ -44,7 +36,7 @@ class Scheduler:
                 time.sleep(self.ERROR_BACKOFF)
                 continue
 
-            secs = self.secs_to_candle_close(next_tf)
+            secs = self.CYCLE_INTERVAL
             if on_sleep:
                 try:
                     on_sleep(secs)
