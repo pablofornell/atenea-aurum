@@ -1,10 +1,9 @@
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 
 class Scheduler:
     CYCLE_INTERVAL = 900  # 15 minutes between cycles
-    WEEKEND_POLL   = 60   # seconds between checks during weekend sleep
     ERROR_BACKOFF  = 30   # seconds to wait after a non-fatal error
 
     def is_weekend_sleep(self) -> bool:
@@ -18,6 +17,17 @@ class Scheduler:
         if wd == 6 and h < 22:
             return True
         return False
+
+    def _seconds_until_open(self) -> float:
+        """Seconds until next market open (Sunday 22:00 UTC)."""
+        now = datetime.now(timezone.utc)
+        days_until_sunday = (6 - now.weekday()) % 7
+        open_dt = (now + timedelta(days=days_until_sunday)).replace(
+            hour=22, minute=0, second=0, microsecond=0
+        )
+        if open_dt <= now:
+            open_dt += timedelta(weeks=1)
+        return max((open_dt - now).total_seconds(), 0)
 
     def run(self, loop_fn, on_sleep=None, on_error=None):
         while True:
@@ -45,13 +55,10 @@ class Scheduler:
             time.sleep(secs)
 
     def _weekend_wait(self, on_sleep=None):
-        while self.is_weekend_sleep():
-            # time until Sunday 22:00 UTC
-            now  = datetime.now(timezone.utc)
-            secs = self.WEEKEND_POLL
-            if on_sleep:
-                try:
-                    on_sleep(secs, weekend=True)
-                except Exception:
-                    pass
-            time.sleep(secs)
+        secs = self._seconds_until_open()
+        if on_sleep:
+            try:
+                on_sleep(secs, weekend=True)
+            except Exception:
+                pass
+        time.sleep(secs)
