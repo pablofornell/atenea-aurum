@@ -51,10 +51,13 @@ def main():
 
         logger.log_cycle(context, decision, result)
 
-    def on_sleep(secs, weekend=False):
+    def on_sleep(secs, weekend=False, killzone=False):
         n = cycle_num[0]
         if weekend:
             tui.set_state("Weekend — market closed",
+                          f"Cycle {n}")
+        elif killzone:
+            tui.set_state("Outside killzone — waiting",
                           f"Cycle {n}")
         else:
             tui.set_state("Waiting for next cycle...",
@@ -90,7 +93,7 @@ def main():
             tui.set_state("No MT4 connection — retrying each cycle")
 
         threading.Thread(target=_poll_positions, daemon=True, name="positions-poll").start()
-        sched.run(cycle, on_sleep=on_sleep, on_error=on_error)
+        sched.run(cycle, cfg=config, on_sleep=on_sleep, on_error=on_error)
 
     except KeyboardInterrupt:
         pass

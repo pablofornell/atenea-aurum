@@ -18,6 +18,25 @@ class Scheduler:
             return True
         return False
 
+    def is_in_killzone(self, cfg) -> bool:
+        killzones = getattr(cfg, "KILLZONES", None)
+        if not killzones:
+            return True
+
+        now = datetime.now(timezone.utc)
+        wd  = now.weekday()
+        h   = now.hour
+
+        fri_cutoff = getattr(cfg, "KILLZONE_FRI_CUTOFF", 19)
+        mon_start  = getattr(cfg, "KILLZONE_MON_START",  2)
+
+        if wd == 4 and h >= fri_cutoff:
+            return False
+        if wd == 0 and h < mon_start:
+            return False
+
+        return any(start <= h < end for start, end in killzones)
+
     def _seconds_until_open(self) -> float:
         """Seconds until next market open (Sunday 22:00 UTC)."""
         now = datetime.now(timezone.utc)
@@ -29,10 +48,36 @@ class Scheduler:
             open_dt += timedelta(weeks=1)
         return max((open_dt - now).total_seconds(), 0)
 
-    def run(self, loop_fn, on_sleep=None, on_error=None):
+    def _seconds_until_killzone(self, cfg) -> float:
+        """Seconds until the next killzone window opens."""
+        killzones  = cfg.KILLZONES
+        fri_cutoff = getattr(cfg, "KILLZONE_FRI_CUTOFF", 19)
+        mon_start  = getattr(cfg, "KILLZONE_MON_START",  2)
+        now        = datetime.now(timezone.utc)
+
+        for delta_m in range(1, 7 * 24 * 60 + 1):
+            t  = now + timedelta(minutes=delta_m)
+            wd = t.weekday()
+            h  = t.hour
+            if wd == 5 or (wd == 6 and h < 22):      # weekend
+                continue
+            if wd == 4 and h >= fri_cutoff:
+                continue
+            if wd == 0 and h < mon_start:
+                continue
+            if any(start <= h < end for start, end in killzones):
+                return (t - now).total_seconds()
+
+        return 3600.0
+
+    def run(self, loop_fn, cfg=None, on_sleep=None, on_error=None):
         while True:
             if self.is_weekend_sleep():
                 self._weekend_wait(on_sleep)
+                continue
+
+            if cfg is not None and not self.is_in_killzone(cfg):
+                self._killzone_wait(cfg, on_sleep)
                 continue
 
             try:
@@ -59,6 +104,15 @@ class Scheduler:
         if on_sleep:
             try:
                 on_sleep(secs, weekend=True)
+            except Exception:
+                pass
+        time.sleep(secs)
+
+    def _killzone_wait(self, cfg, on_sleep=None):
+        secs = self._seconds_until_killzone(cfg)
+        if on_sleep:
+            try:
+                on_sleep(secs, killzone=True)
             except Exception:
                 pass
         time.sleep(secs)

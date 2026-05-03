@@ -11,6 +11,15 @@ MAX_OPEN_TRADES = 1     # max simultaneous positions
 CYCLE_SECONDS  = 60     # seconds between cycles (synced to M15 candle close)
 WEEKEND_SLEEP  = True   # sleep Fri 21:00 UTC → Sun 22:00 UTC
 
+# Killzones — UTC [start, end) hour pairs when the bot is allowed to open trades.
+# Set to [] to disable filtering and trade 24/5.
+KILLZONES = [
+    (7, 10),   # London open
+    (12, 15),  # NY open / London-NY overlap
+]
+KILLZONE_FRI_CUTOFF = 19  # no new trades on Friday at or after this UTC hour
+KILLZONE_MON_START  = 2   # no new trades on Monday before this UTC hour
+
 # Agent
 CLAUDE_CLI     = "claude"
 STRATEGY_DIR   = "./src/strategy"
