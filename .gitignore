@@ -28,3 +28,4 @@ Thumbs.db
 # Secrets / local config overrides
 .env
 config.local.py
+liquity_info/
