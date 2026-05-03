@@ -14,6 +14,21 @@ from scheduler import Scheduler
 from tui import TUI
 
 
+def _near_target(pos: dict, current_price: float) -> bool:
+    """True when a position has progressed ≥80% of its TP distance from entry."""
+    entry = pos["open"]
+    tp    = pos["tp"]
+    if tp == 0 or tp == entry:
+        return False
+    is_buy   = str(pos["type"]).upper() in ("BUY", "0")
+    progress = (
+        (current_price - entry) / (tp - entry)
+        if is_buy
+        else (entry - current_price) / (entry - tp)
+    )
+    return progress >= 0.80
+
+
 def main():
     tui    = TUI()
     logger = AurumLogger(tui=tui)
@@ -50,6 +65,29 @@ def main():
         last_result[0] = result
 
         logger.log_cycle(context, decision, result)
+
+        # Phase 4 — adaptive interval
+        positions = context["positions"]
+        price     = context["price"]["bid"]
+        if positions and _near_target(positions[0], price):
+            base_secs = config.INTERVAL_NEAR_TARGET
+        elif positions:
+            base_secs = config.INTERVAL_WITH_POSITION
+        else:
+            base_secs = config.INTERVAL_NO_POSITION
+
+        agent_mins = decision.get("next_check_minutes")
+        if isinstance(agent_mins, (int, float)) and 1 <= agent_mins <= 15:
+            agent_secs = int(agent_mins) * 60
+            next_secs  = min(base_secs, agent_secs)
+            if next_secs < base_secs:
+                logger.info(
+                    f"Agent accelerated poll: {agent_mins}min → {next_secs}s (base {base_secs}s)"
+                )
+        else:
+            next_secs = base_secs
+
+        return next_secs
 
     def on_sleep(secs, weekend=False, killzone=False):
         n = cycle_num[0]

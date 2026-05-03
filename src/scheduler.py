@@ -81,7 +81,7 @@ class Scheduler:
                 continue
 
             try:
-                loop_fn()
+                next_secs = loop_fn()
             except Exception as e:
                 if on_error:
                     try:
@@ -91,7 +91,11 @@ class Scheduler:
                 time.sleep(self.ERROR_BACKOFF)
                 continue
 
-            secs = self.CYCLE_INTERVAL
+            secs = (
+                next_secs
+                if isinstance(next_secs, (int, float)) and next_secs > 0
+                else self.CYCLE_INTERVAL
+            )
             if on_sleep:
                 try:
                     on_sleep(secs)

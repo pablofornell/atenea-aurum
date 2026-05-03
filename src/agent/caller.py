@@ -5,13 +5,14 @@ import subprocess
 import config
 
 _WAIT_RESPONSE = {
-    "decision":        "WAIT",
-    "reasoning":       "parse_error",
-    "entry_notes":     "",
-    "sl":              0.0,
-    "tp":              0.0,
-    "confidence":      0.0,
-    "ticket_to_close": None,
+    "decision":            "WAIT",
+    "reasoning":           "parse_error",
+    "entry_notes":         "",
+    "sl":                  0.0,
+    "tp":                  0.0,
+    "confidence":          0.0,
+    "ticket_to_close":     None,
+    "next_check_minutes":  None,
 }
 
 _OUTPUT_INSTRUCTION = """
@@ -26,7 +27,8 @@ Required structure:
   "sl": 0.00,
   "tp": 0.00,
   "confidence": 0.0,
-  "ticket_to_close": null
+  "ticket_to_close": null,
+  "next_check_minutes": null
 }
 """
 
