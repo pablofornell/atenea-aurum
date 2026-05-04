@@ -49,6 +49,9 @@ class AurumLogger:
     def error(self, msg: str):
         self._emit(msg, "ERROR")
 
+    def warn(self, msg: str):
+        self._emit(f"WARN: {msg}", "INFO")
+
     def cycle_start(self):
         self._cycle_start = time.time()
         self._emit("CYCLE START")
@@ -74,6 +77,35 @@ class AurumLogger:
         self._emit(f"CYCLE END ({elapsed:.1f}s)")
 
         self._append_decision(context, decision, result)
+
+    def log_state_changes(self, changes: dict, bias_warning: str | None = None) -> None:
+        """Log state update events for this cycle."""
+        for ev in changes.get("new_structural_events", []):
+            self._emit(f"STATE — {ev}")
+
+        for pool in changes.get("pools_swept", []):
+            self._emit(f"STATE — {pool}")
+
+        for poi in changes.get("pois_mitigated", []):
+            self._emit(f"STATE — {poi}")
+
+        if bias_warning:
+            self._emit(f"STATE WARN — {bias_warning}", "INFO")
+
+    def log_state_decision_check(self, decision: dict, state: dict) -> None:
+        """Log discrepancies between decision and pending setup."""
+        pending = state.get("bot_managed", {}).get("pending_setup", {})
+        if not pending.get("active"):
+            return
+
+        expected = pending.get("expected_direction")
+        actual = decision.get("decision", "WAIT")
+        if expected and actual in ("BUY", "SELL") and actual != expected:
+            self._emit(
+                f"STATE WARN — decision={actual} conflicts with pending_setup "
+                f"expected_direction={expected}",
+                "INFO",
+            )
 
     # ── internals ─────────────────────────────────────────────────────────────
 

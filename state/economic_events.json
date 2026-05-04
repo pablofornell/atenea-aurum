@@ -1,0 +1,17 @@
+{
+  "_comment": "Manual economic calendar. Add/remove events as needed. All times are UTC.",
+  "events": [
+    {
+      "date": "2026-05-06",
+      "time": "14:30",
+      "event": "US Non-Farm Payrolls",
+      "impact": "high"
+    },
+    {
+      "date": "2026-05-07",
+      "time": "18:00",
+      "event": "FOMC Meeting Minutes",
+      "impact": "high"
+    }
+  ]
+}

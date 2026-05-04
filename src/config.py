@@ -30,6 +30,10 @@ CLAUDE_CLI     = "claude"
 STRATEGY_DIR   = "./src/strategy"
 MAX_TOKENS     = 1000
 
+# Persistent state
+STATE_DIR      = "./state"
+STATE_FILE     = "./state/structural_state.json"
+
 # Data per cycle
 CANDLES_H4     = 20
 CANDLES_H1     = 48

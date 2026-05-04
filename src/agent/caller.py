@@ -13,6 +13,7 @@ _WAIT_RESPONSE = {
     "confidence":          0.0,
     "ticket_to_close":     None,
     "next_check_minutes":  None,
+    "_bot_managed_state":  None,
 }
 
 _OUTPUT_INSTRUCTION = """
@@ -28,13 +29,36 @@ Required structure:
   "tp": 0.00,
   "confidence": 0.0,
   "ticket_to_close": null,
-  "next_check_minutes": null
+  "next_check_minutes": null,
+  "bot_managed_state": {
+    "h4_bias": "bullish|bearish|ranging|unclear",
+    "h4_bias_since": "ISO-8601 or null",
+    "h4_bias_justification": "string",
+    "h1_bias": "bullish|bearish|ranging|unclear",
+    "h1_bias_justification": "string",
+    "pending_setup": {
+      "active": false,
+      "type": null,
+      "context": "",
+      "target_poi_id": null,
+      "target_liquidity_price": null,
+      "expected_direction": null,
+      "since": null,
+      "invalidate_above": null,
+      "invalidate_below": null,
+      "invalidate_after": null
+    },
+    "narrative": "string"
+  }
 }
 """
 
 
 def call_agent(market_text: str, system_prompt: str, strategy_dir: str) -> dict:
     full_prompt = f"{system_prompt}\n\n{market_text}{_OUTPUT_INSTRUCTION}"
+
+    env = os.environ.copy()
+    env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
 
     try:
         result = subprocess.run(
@@ -44,6 +68,7 @@ def call_agent(market_text: str, system_prompt: str, strategy_dir: str) -> dict:
             text=True,
             encoding="utf-8",
             cwd=os.path.abspath(strategy_dir),
+            env=env,
             timeout=180,
         )
     except subprocess.TimeoutExpired:
@@ -69,8 +94,6 @@ def call_agent(market_text: str, system_prompt: str, strategy_dir: str) -> dict:
     if not raw:
         return _fail(f"empty_stdout rc={returncode} stderr={stderr[:200]!r}")
 
-    # The claude CLI --output-format json wraps the response in a JSON envelope.
-    # Known envelope keys: "result" (success text), "is_error", "subtype".
     envelope   = None
     agent_text = raw
     try:
@@ -80,10 +103,8 @@ def call_agent(market_text: str, system_prompt: str, strategy_dir: str) -> dict:
             is_err = envelope.get("is_error", False)
             return _fail(f"empty_result in envelope is_error={is_err} keys={list(envelope.keys())}")
     except json.JSONDecodeError:
-        # stdout is plain text, not a JSON envelope — use as-is
         agent_text = raw
 
-    # Strip optional markdown fence
     agent_text = agent_text.strip()
     if agent_text.startswith("```"):
         agent_text = agent_text.split("```")[1]
@@ -96,9 +117,14 @@ def call_agent(market_text: str, system_prompt: str, strategy_dir: str) -> dict:
     except json.JSONDecodeError as exc:
         return _fail(f"json_parse_error: {exc} | text={agent_text[:300]!r}")
 
-    # Ensure all required keys are present
+    # Extract bot_managed_state before filling defaults
+    bot_managed = decision.pop("bot_managed_state", None)
+
     for key, default in _WAIT_RESPONSE.items():
         if key != "_debug":
             decision.setdefault(key, default)
+
+    # Store bot_managed_state under internal key for orchestrator to consume
+    decision["_bot_managed_state"] = bot_managed
 
     return decision

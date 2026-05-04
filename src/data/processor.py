@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timezone
 
 import config
@@ -48,7 +49,11 @@ def build_context(mt4: MT4Client) -> dict:
     }
 
 
-def serialize_for_prompt(ctx: dict, last_result: str | None = None) -> str:
+def serialize_for_prompt(
+    ctx: dict,
+    last_result: str | None = None,
+    structural_state: dict | None = None,
+) -> str:
     p       = ctx["price"]
     d       = ctx["day_ohlc"]
     w       = ctx["week_hl"]
@@ -99,4 +104,37 @@ def serialize_for_prompt(ctx: dict, last_result: str | None = None) -> str:
         lines.append("")
         lines.append(f"LAST CYCLE RESULT: {last_result}")
 
+    if structural_state:
+        lines.append("")
+        lines.append(_serialize_state(structural_state))
+
     return "\n".join(lines)
+
+
+def _serialize_state(state: dict) -> str:
+    """Serialize structural state for prompt injection, omitting empty/null fields."""
+    cm_raw = state.get("code_managed", {})
+    bm = state.get("bot_managed", {})
+
+    compact_cm = {}
+    for key, val in cm_raw.items():
+        if isinstance(val, list) and not val:
+            continue
+        if val is None:
+            continue
+        if isinstance(val, dict):
+            # Omit dicts that are all-zero or all-null
+            non_empty = {k: v for k, v in val.items() if v is not None and v != 0 and v != 0.0}
+            if not non_empty:
+                continue
+            compact_cm[key] = val
+        else:
+            compact_cm[key] = val
+
+    # Omit open_position_metrics if no position
+    metrics = compact_cm.get("open_position_metrics", {})
+    if metrics.get("ticket") is None:
+        compact_cm.pop("open_position_metrics", None)
+
+    payload = {"code_managed": compact_cm, "bot_managed": bm}
+    return "STRUCTURAL_STATE:\n" + json.dumps(payload, indent=2)

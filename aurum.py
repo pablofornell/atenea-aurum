@@ -11,6 +11,9 @@ from data.processor import build_context, serialize_for_prompt
 from logger import AurumLogger
 from risk.executor import execute
 from scheduler import Scheduler
+from state.io import load_state, save_state
+from state.schema import default_bot_managed, validate_bot_managed
+from state.updater import update_code_managed_state, check_h4_bias_sanity
 from tui import TUI
 
 
@@ -29,14 +32,29 @@ def _near_target(pos: dict, current_price: float) -> bool:
     return progress >= 0.80
 
 
+def _handle_reset(state_file: str) -> None:
+    """Reset bot_managed state to defaults without touching code_managed."""
+    state = load_state(state_file)
+    state["bot_managed"] = default_bot_managed()
+    save_state(state, state_file)
+    print("bot_managed state reset to defaults.")
+    print(f"State file: {state_file}")
+
+
 def main():
+    if "--reset-bot-state" in sys.argv:
+        importlib.reload(config)
+        _handle_reset(config.STATE_FILE)
+        return
+
     tui    = TUI()
     logger = AurumLogger(tui=tui)
     mt4    = MT4Client(config.MT4_HOST, config.MT4_PORT)
     sched  = Scheduler()
 
-    cycle_num   = [0]
-    last_result = [None]
+    cycle_num        = [0]
+    last_result      = [None]
+    last_decision    = [None]   # previous cycle's full decision dict
 
     def cycle():
         importlib.reload(config)
@@ -46,27 +64,56 @@ def main():
         logger.cycle_start()
 
         # Phase 1 — data collection
-        tui.set_state("Collecting data...", f"Cycle {n}  ·  Step 1/3")
+        tui.set_state("Collecting data...", f"Cycle {n}  ·  Step 1/4")
         context = build_context(mt4)
         tui.update_account(context["account"])
         tui.update_market(context)
         tui.update_positions(context["positions"])
 
-        # Phase 2 — agent (receives last cycle result so it can react to errors)
-        tui.set_state("Querying agent...", f"Cycle {n}  ·  Step 2/3")
-        market_text   = serialize_for_prompt(context, last_result=last_result[0])
+        # Phase 2 — state update
+        tui.set_state("Updating state...", f"Cycle {n}  ·  Step 2/4")
+        state = load_state(config.STATE_FILE)
+        changes = update_code_managed_state(
+            state, context, last_decision[0], config
+        )
+        logger.log_state_changes(changes)
+
+        # Phase 3 — agent
+        tui.set_state("Querying agent...", f"Cycle {n}  ·  Step 3/4")
+        market_text   = serialize_for_prompt(
+            context,
+            last_result=last_result[0],
+            structural_state=state,
+        )
         system_prompt = open(f"{config.STRATEGY_DIR}/system_prompt.md", encoding="utf-8").read()
         decision      = call_agent(market_text, system_prompt, config.STRATEGY_DIR)
         tui.update_decision(decision)
 
-        # Phase 3 — execution
-        tui.set_state("Executing...", f"Cycle {n}  ·  Step 3/3")
+        # Validate and merge bot_managed_state from response
+        raw_bm = decision.pop("_bot_managed_state", None)
+        if raw_bm is not None:
+            ok, err = validate_bot_managed(raw_bm)
+            if ok:
+                bias_warning = check_h4_bias_sanity(state, raw_bm)
+                logger.log_state_changes({}, bias_warning=bias_warning)
+                logger.log_state_decision_check(decision, state)
+                state["bot_managed"] = raw_bm
+            else:
+                logger.warn(f"bot_managed_state validation failed: {err} — keeping previous")
+        else:
+            logger.warn("bot_managed_state missing from response — keeping previous")
+
+        save_state(state, config.STATE_FILE)
+
+        # Phase 4 — execution
+        tui.set_state("Executing...", f"Cycle {n}  ·  Step 4/4")
         result = execute(decision, context, mt4, config)
         last_result[0] = result
+        last_decision[0] = decision
 
         logger.log_cycle(context, decision, result)
 
-        # Phase 4 — adaptive interval
+        # Phase 5 — adaptive interval
         positions = context["positions"]
         price     = context["price"]["bid"]
         if positions and _near_target(positions[0], price):
@@ -99,7 +146,7 @@ def main():
                           f"Cycle {n}")
         else:
             tui.set_state("Waiting for next cycle...",
-                          f"Cycle {n}  ·  Step 1/3")
+                          f"Cycle {n}  ·  Step 1/4")
         tui.start_timer(n, secs)
         logger.info(f"Sleeping {secs:.1f}s until next cycle")
 
