@@ -159,11 +159,20 @@ def main():
             tui.set_state(f"Error: {type(exc).__name__}", str(exc)[:80])
 
     _stop_poll = threading.Event()
+    _mt4_poll_ok = [True]
 
     def _poll_positions():
         while not _stop_poll.wait(5.0):
             try:
                 tui.update_positions(mt4.get_positions())
+                if not _mt4_poll_ok[0]:
+                    _mt4_poll_ok[0] = True
+                    logger.info("MT4 reconnected")
+            except MT4ConnectionError:
+                if _mt4_poll_ok[0]:
+                    _mt4_poll_ok[0] = False
+                    logger.error("MT4 connection lost")
+                tui.set_disconnected()
             except Exception:
                 pass
 
