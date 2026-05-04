@@ -133,8 +133,16 @@ def main():
         logger.log_cycle(context, decision, result)
 
         # Phase 5 — adaptive interval
+        # Refresh positions from MT4 if a new order was just placed so the
+        # interval reflects actual state (context snapshot was taken pre-execution)
         positions = context["positions"]
-        price     = context["price"]["bid"]
+        action = decision.get("decision", "").upper()
+        if action in ("BUY", "SELL") and not result.startswith(("WAIT", "ERROR")):
+            try:
+                positions = mt4.get_positions()
+            except Exception:
+                pass
+        price = context["price"]["bid"]
         if positions and _near_target(positions[0], price):
             base_secs = config.INTERVAL_NEAR_TARGET
         elif positions:

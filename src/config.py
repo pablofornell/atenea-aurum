@@ -12,7 +12,7 @@ CYCLE_SECONDS  = 60     # seconds between cycles (fallback only)
 WEEKEND_SLEEP  = True   # sleep Fri 21:00 UTC → Sun 22:00 UTC
 
 # Adaptive polling intervals (seconds) — code decides base, agent can only accelerate
-INTERVAL_NO_POSITION   = 600   # 10 min — killzone active, no open trade
+INTERVAL_NO_POSITION   = 300   # 5 min — killzone active, no open trade
 INTERVAL_WITH_POSITION = 300   # 5 min  — position open
 INTERVAL_NEAR_TARGET   = 120   # 2 min  — position at ≥80% TP progress or near SL
 
