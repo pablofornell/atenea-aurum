@@ -772,7 +772,7 @@ def update_code_managed_state(
 
     _update_position_metrics(state, context)
     _append_decision(state, previous_decision)
-    _update_economic_events(state, cfg)
+    # _update_economic_events disabled — no calendar source configured yet
     _cleanup_stale(state)
 
     return {
