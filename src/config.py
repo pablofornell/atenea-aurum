@@ -26,7 +26,7 @@ KILLZONE_FRI_CUTOFF = 19  # no new trades on Friday at or after this UTC hour
 KILLZONE_MON_START  = 2   # no new trades on Monday before this UTC hour
 
 # Agent
-CLAUDE_CLI     = "claude"
+CLAUDE_CLI     = r"C:\Users\hefesto-w10x64\AppData\Local\Microsoft\WinGet\Packages\Anthropic.ClaudeCode_Microsoft.Winget.Source_8wekyb3d8bbwe\claude.exe"
 STRATEGY_DIR   = "./src/strategy"
 MAX_TOKENS     = 1000
 

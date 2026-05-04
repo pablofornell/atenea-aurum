@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import subprocess
 
 import config
@@ -62,8 +63,9 @@ def call_agent(market_text: str, system_prompt: str, strategy_dir: str) -> dict:
 
     try:
         result = subprocess.run(
-            [config.CLAUDE_CLI, "-p", full_prompt,
+            [config.CLAUDE_CLI, "-p",
              "--dangerously-skip-permissions", "--output-format", "json"],
+            input=full_prompt,
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -73,7 +75,9 @@ def call_agent(market_text: str, system_prompt: str, strategy_dir: str) -> dict:
     except subprocess.TimeoutExpired:
         return {**_WAIT_RESPONSE, "reasoning": "agent_timeout"}
     except FileNotFoundError:
-        return {**_WAIT_RESPONSE, "reasoning": "claude_cli_not_found"}
+        exists = os.path.isfile(config.CLAUDE_CLI)
+        which  = shutil.which(config.CLAUDE_CLI)
+        return {**_WAIT_RESPONSE, "reasoning": f"claude_cli_not_found cli={config.CLAUDE_CLI!r} exists={exists} which={which}"}
 
     returncode = result.returncode
     raw        = result.stdout.strip()
