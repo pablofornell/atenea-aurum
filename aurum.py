@@ -17,19 +17,23 @@ from state.updater import update_code_managed_state, check_h4_bias_sanity
 from tui import TUI
 
 
-def _near_target(pos: dict, current_price: float) -> bool:
-    """True when a position has progressed ≥80% of its TP distance from entry."""
+def _tp_progress(pos: dict, current_price: float) -> float:
+    """Returns TP progress as a fraction 0.0–1.0+ (can exceed 1.0 past TP)."""
     entry = pos["open"]
     tp    = pos["tp"]
     if tp == 0 or tp == entry:
-        return False
-    is_buy   = str(pos["type"]).upper() in ("BUY", "0")
-    progress = (
+        return 0.0
+    is_buy = str(pos["type"]).upper() in ("BUY", "0")
+    return (
         (current_price - entry) / (tp - entry)
         if is_buy
         else (entry - current_price) / (entry - tp)
     )
-    return progress >= 0.80
+
+
+def _near_target(pos: dict, current_price: float) -> bool:
+    """True when a position has progressed ≥80% of its TP distance from entry."""
+    return _tp_progress(pos, current_price) >= 0.80
 
 
 def _handle_reset(state_file: str) -> None:
@@ -77,6 +81,21 @@ def main():
             state, context, last_decision[0], config
         )
         logger.log_state_changes(changes)
+
+        # Breakeven guard — move SL to entry when ≥50% TP progress
+        for pos in context["positions"]:
+            price  = context["price"]["bid"]
+            entry  = pos["open"]
+            sl     = pos["sl"]
+            tp     = pos["tp"]
+            ticket = pos["ticket"]
+            is_buy = str(pos["type"]).upper() in ("BUY", "0")
+            at_be  = (sl >= entry) if is_buy else (sl <= entry)
+            if not at_be and _tp_progress(pos, price) >= 0.50:
+                if mt4.modify(ticket, entry, tp):
+                    be_msg = f"BE — SL moved to entry {entry:.2f} (ticket={ticket}, ≥50% TP progress)"
+                    logger.info(be_msg)
+                    last_result[0] = be_msg
 
         # Phase 3 — agent
         tui.set_state("Querying agent...", f"Cycle {n}  ·  Step 3/4")

@@ -147,6 +147,15 @@ def execute(decision: dict, context: dict, mt4: MT4Client, cfg) -> str:
     entry = ask if action == "BUY" else bid
     sl_pips = abs(entry - sl) / _PIP_SIZE
 
+    # TP validation and R:R check
+    if not tp or tp <= 0:
+        return "WAIT: no valid TP provided"
+    tp_pips = abs(tp - entry) / _PIP_SIZE
+    if sl_pips > 0:
+        rr = tp_pips / sl_pips
+        if rr < 1.3:
+            return f"WAIT: R:R {rr:.2f}:1 below minimum 1.3:1 — widen TP or tighten SL"
+
     # Broker stop level check
     try:
         stop_pips = mt4.get_stoplevel(symbol) / _PIP_SIZE

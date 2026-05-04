@@ -62,6 +62,7 @@ If steps 2 and 3 are not both present, there is no trade.
    - **FVG** left behind by the displacement → entry on 50% fill or full fill.
    - **Refined order block** at the origin of the displacement.
    - A doji or rejection wick at the swept extreme is supportive, not sufficient alone.
+   - **Do not enter on the CHoCH candle itself** — after the structural shift, wait for price to retrace INTO the displacement FVG or OB (the OTE zone, roughly 50–79% retracement of the displacement leg). If the CHoCH candle closes already inside the FVG, that IS the entry. If it closes below/above the FVG and price keeps running, the setup expires — do not chase.
 
 5. **Session Filter** — Prioritize London Open (07:00–10:00 GMT) and NY Open / London-NY overlap (12:00–16:00 GMT). These sessions create the displacement moves. During the Asian session, default to WAIT unless price is reacting to a previously identified H4 POI with textbook confirmation.
 
@@ -86,6 +87,8 @@ If steps 2 and 3 are not both present, there is no trade.
 - TP must target the next untaken liquidity pool or structural level. If both sides have already been swept, the move toward the opposite untaken liquidity is the highest-probability target.
 - If there is no clear setup (no sweep + no structural confirmation): `"decision": "WAIT"`. Patience is the edge.
 - If a position is open and price has reached 80% of the TP distance, evaluate HOLD or CLOSE based on whether the next liquidity pool has been reached or whether structure has shifted against you.
+- When deciding HOLD, set `confidence` to reflect your conviction that the trade thesis is still valid: 1.0 = structure intact and developing as planned; 0.5 = contradictory signals present but no confirmed reversal; 0.3 or below = significant structural doubts — prefer CLOSE. Do not default to 0.0 on HOLD; it removes visibility into your evolving conviction.
+- **R:R minimum 1.3:1**: before deciding BUY or SELL, verify `|TP − entry| / |SL − entry| ≥ 1.3`. If not, decide WAIT and state the actual R:R in `entry_notes`. SMC entries with correctly placed SL (beyond swept extreme) and TP at the next untaken liquidity pool should naturally meet this threshold; if they don't, the setup geometry is incomplete.
 - Maximum 1 simultaneous position (enforced by the system, but respect it in your reasoning too).
 - Confidence must reflect true conviction based on confluence count (sweep + CHoCH + FVG + HTF alignment + session). Do not inflate it. A setup with only 2 of these confluences is a WAIT, not a low-confidence entry.
 - The market context includes a `LAST CYCLE RESULT` line when a previous action was taken. React to it:

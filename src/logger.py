@@ -66,6 +66,22 @@ class AurumLogger:
         reason  = decision.get("reasoning", "")
 
         self._emit(f"DATA OK — price={price:.2f} session={session} positions={n_pos}")
+        for pos in context.get("positions", []):
+            is_buy    = str(pos["type"]).upper() in ("BUY", "0")
+            p_entry   = pos["open"]
+            p_tp      = pos["tp"]
+            p_sl      = pos["sl"]
+            p_profit  = pos.get("profit", 0.0)
+            p_price   = context["price"]["bid"]
+            tp_pct    = ""
+            if p_tp and p_tp != p_entry:
+                tp_pct = f" tp={abs(p_price - p_entry) / abs(p_tp - p_entry) * 100:.0f}%"
+            dist_sl   = abs(p_price - p_sl)
+            dist_tp   = abs(p_tp - p_price) if p_tp else 0.0
+            self._emit(
+                f"POSITION — ticket={pos['ticket']} profit={p_profit:+.2f}"
+                f"{tp_pct} dist_sl={dist_sl:.2f}pts dist_tp={dist_tp:.2f}pts"
+            )
         self._emit(f"AGENT — decision={action} confidence={conf:.2f}")
         if reason:
             self._emit(f"AGENT REASONING — {reason}")
