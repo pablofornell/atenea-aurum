@@ -136,5 +136,11 @@ def _serialize_state(state: dict) -> str:
     if metrics.get("ticket") is None:
         compact_cm.pop("open_position_metrics", None)
 
+    # Strip mitigated POIs — kept in state for deduplication but not relevant to agent
+    if "active_pois" in compact_cm:
+        compact_cm["active_pois"] = [p for p in compact_cm["active_pois"] if not p.get("mitigated")]
+        if not compact_cm["active_pois"]:
+            compact_cm.pop("active_pois")
+
     payload = {"code_managed": compact_cm, "bot_managed": bm}
     return "STRUCTURAL_STATE:\n" + json.dumps(payload, indent=2)

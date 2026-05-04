@@ -396,6 +396,11 @@ def _update_pois(state: dict, context: dict) -> list:
     # Update fill% and detect mitigation for all active POIs
     still_active = []
     for poi in active:
+        # Already mitigated in a prior cycle — keep for deduplication, skip re-check
+        if poi.get("mitigated"):
+            still_active.append(poi)
+            continue
+
         poi_type = poi["type"]
         high = poi["high"]
         low = poi["low"]
@@ -404,6 +409,7 @@ def _update_pois(state: dict, context: dict) -> list:
             # Price enters from above, full mitigation = close below low
             if bid <= low:
                 poi["mitigated"] = True
+                poi["mitigated_at"] = now
                 poi["filled_pct"] = 1.0
             elif bid < high:
                 poi["filled_pct"] = round((high - bid) / (high - low), 2) if high > low else 0.0
@@ -413,6 +419,7 @@ def _update_pois(state: dict, context: dict) -> list:
             # Price enters from below, full mitigation = close above high
             if bid >= high:
                 poi["mitigated"] = True
+                poi["mitigated_at"] = now
                 poi["filled_pct"] = 1.0
             elif bid > low:
                 poi["filled_pct"] = round((bid - low) / (high - low), 2) if high > low else 0.0
@@ -422,9 +429,9 @@ def _update_pois(state: dict, context: dict) -> list:
         if poi.get("mitigated"):
             mitigated_recent.append({"id": poi["id"], "type": poi_type,
                                       "mitigated_at": now})
-            mitigated_log.append(f"{tf} {poi_type} mitigated at {bid:.2f}")
-        else:
-            still_active.append(poi)
+            mitigated_log.append(f"{poi.get('timeframe', '?')} {poi_type} mitigated at {bid:.2f}")
+
+        still_active.append(poi)
 
     cm["active_pois"] = still_active
     return mitigated_log
@@ -713,10 +720,11 @@ def _cleanup_stale(state: dict) -> None:
             if _days_since(p.get("created", "")) < 7
         ]
 
-    # Active POIs older than 48 hours: archive (drop)
+    # Active POIs: mitigated ones expire after 3h (dedup window), non-mitigated after 48h
     cm["active_pois"] = [
         p for p in cm["active_pois"]
-        if _hours_since(p.get("created", "")) < 48
+        if (p.get("mitigated") and _hours_since(p.get("mitigated_at", "")) < 3)
+        or (not p.get("mitigated") and _hours_since(p.get("created", "")) < 48)
     ]
 
 
