@@ -28,4 +28,5 @@ Thumbs.db
 # Secrets / local config overrides
 .env
 config.local.py
-liquity_info/
+for_the_future/
+structural_state.json
