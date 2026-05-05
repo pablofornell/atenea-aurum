@@ -96,7 +96,7 @@ def main():
         )
         logger.log_state_changes(changes)
 
-        # Breakeven guard — move SL to entry when ≥50% TP progress
+        # Breakeven / trailing-SL guard — runs before agent to avoid wasting an API call
         for pos in context["positions"]:
             price  = context["price"]["bid"]
             entry  = pos["open"]
@@ -104,8 +104,39 @@ def main():
             tp     = pos["tp"]
             ticket = pos["ticket"]
             is_buy = str(pos["type"]).upper() in ("BUY", "0")
-            at_be  = (sl >= entry) if is_buy else (sl <= entry)
-            if not at_be and _tp_progress(pos, price) >= 0.50:
+            progress = _tp_progress(pos, price)
+
+            # ≥65%: trail SL to lock in ~50% of the move from entry to current price
+            # Formula: for BUY, new_sl = entry + 0.5 * (price − entry)
+            #          for SELL, new_sl = entry − 0.5 * (entry − price)
+            # Only tighten (never widen): skip if trailing level is worse than current SL.
+            if tp != 0 and progress >= 0.65:
+                if is_buy:
+                    trail_sl = entry + 0.5 * (price - entry)
+                    if trail_sl > sl:  # only tighten
+                        if mt4.modify(ticket, trail_sl, tp):
+                            trail_msg = (
+                                f"TRAIL — SL moved to {trail_sl:.2f} "
+                                f"(ticket={ticket}, {progress*100:.0f}% TP progress)"
+                            )
+                            logger.info(trail_msg)
+                            last_result[0] = trail_msg
+                            sl = trail_sl  # update local sl so BE check below sees the new value
+                else:
+                    trail_sl = entry - 0.5 * (entry - price)
+                    if trail_sl < sl:  # only tighten (lower SL for sells)
+                        if mt4.modify(ticket, trail_sl, tp):
+                            trail_msg = (
+                                f"TRAIL — SL moved to {trail_sl:.2f} "
+                                f"(ticket={ticket}, {progress*100:.0f}% TP progress)"
+                            )
+                            logger.info(trail_msg)
+                            last_result[0] = trail_msg
+                            sl = trail_sl
+
+            # ≥50%: move SL to break-even if not already at or beyond entry
+            at_be = (sl >= entry) if is_buy else (sl <= entry)
+            if not at_be and progress >= 0.50:
                 if mt4.modify(ticket, entry, tp):
                     be_msg = f"BE — SL moved to entry {entry:.2f} (ticket={ticket}, ≥50% TP progress)"
                     logger.info(be_msg)

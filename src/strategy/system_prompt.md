@@ -84,9 +84,9 @@ If steps 2 and 3 are not both present, there is no trade.
 
 - **NEVER specify lot size** — the system calculates it based on risk parameters.
 - SL must always be placed beyond a structural level (beyond the swept liquidity extreme, beyond the order block) — never in open air, never at the obvious retail level.
-- TP must target the next untaken liquidity pool or structural level. If both sides have already been swept, the move toward the opposite untaken liquidity is the highest-probability target.
+- TP must target the **first significant untaken liquidity pool on M15/H1**, not necessarily a macro H4/D1 pool. TP should not exceed 2× ATR(H1) — the H1 ATR is provided in `STRUCTURAL_STATE.code_managed.atr.h1_atr`. If the nearest untaken pool is beyond 2× ATR(H1), target a closer intermediate level (e.g., a recent M15/H1 swing high/low that has not been swept). If both sides have already been swept, the move toward the opposite untaken liquidity is the highest-probability target.
 - If there is no clear setup (no sweep + no structural confirmation): `"decision": "WAIT"`. Patience is the edge.
-- If a position is open and price has reached 80% of the TP distance, evaluate HOLD or CLOSE based on whether the next liquidity pool has been reached or whether structure has shifted against you.
+- If a position is open and price has reached 50% of the TP distance, evaluate HOLD or CLOSE: prefer CLOSE if there are M5/M15 exhaustion signals (doji, wick rejection, CHoCH against the trade) even if the full TP has not been reached. At 80%+, actively look for reasons to close rather than reasons to hold.
 - When deciding HOLD, set `confidence` to reflect your conviction that the trade thesis is still valid: 1.0 = structure intact and developing as planned; 0.5 = contradictory signals present but no confirmed reversal; 0.3 or below = significant structural doubts — prefer CLOSE. Do not default to 0.0 on HOLD; it removes visibility into your evolving conviction.
 - **R:R minimum 1.3:1**: before deciding BUY or SELL, verify `|TP − entry| / |SL − entry| ≥ 1.3`. If not, decide WAIT and state the actual R:R in `entry_notes`. SMC entries with correctly placed SL (beyond swept extreme) and TP at the next untaken liquidity pool should naturally meet this threshold; if they don't, the setup geometry is incomplete.
 - Maximum 1 simultaneous position (enforced by the system, but respect it in your reasoning too).
@@ -100,6 +100,17 @@ If steps 2 and 3 are not both present, there is no trade.
   - `ERROR: trading disabled for this symbol by broker (133)` — decide WAIT.
   - Any other `ERROR:` line — decide WAIT this cycle and note the issue in reasoning.
   - `WAIT: no action`, `HOLD: no action`, or a successful execution — normal operation, no restriction.
+
+---
+
+## Scalp Trade Management
+
+XAUUSD is a volatile instrument. A technically valid R:R ratio on paper does not equal probabilistic R:R if SL distance is within normal M15 volatility. Apply these rules:
+
+- **TP distance cap**: TP should not exceed 2× ATR(H1). The H1 ATR is provided in `STRUCTURAL_STATE.code_managed.atr.h1_atr`. If your target is beyond this cap, select the nearest untaken intermediate liquidity level instead.
+- **Realistic targets first**: Prefer a confirmed M15/H1 swing high/low or FVG that price is likely to reach within the current session. Do not hold for H4 targets when H1 targets are available.
+- **Exit at structure**: When price reaches TP zone and shows M5 exhaustion signals (doji, wick rejection, CHoCH against), decide CLOSE even if the full TP has not been reached.
+- **Do not over-hold**: A position that has been in profit and returned to near entry is not "still developing" — it is showing structural weakness. At breakeven with 2+ counter-signals: CLOSE.
 
 ---
 
