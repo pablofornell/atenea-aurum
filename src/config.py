@@ -16,8 +16,9 @@ MT4_PORT       = 5555
 MAGIC_NUMBER   = 20240101
 
 # Risk — NEVER delegated to the agent
-MAX_RISK_PCT    = 2 # % of balance per trade
-MAX_OPEN_TRADES = 1     # max simultaneous positions
+MAX_RISK_PCT          = 2    # % of balance per trade
+MAX_OPEN_TRADES       = 1    # max simultaneous positions
+AUTO_CLOSE_PROFIT_PCT = 0.0  # close automatically when trade profit >= N% of balance (0 = disabled)
 
 # Cycle
 CYCLE_SECONDS  = 60     # seconds between cycles (fallback only)
