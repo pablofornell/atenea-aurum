@@ -540,7 +540,7 @@ def _last_bullish(candles: list, from_idx: int, lookback: int) -> dict | None:
     return None
 
 
-def _poi_exists(low: float, high: float, pois: list, tol: float = 0.15) -> bool:
+def _poi_exists(low: float, high: float, pois: list, tol: float = 0.50) -> bool:
     return any(
         abs(p["low"] - low) < tol and abs(p["high"] - high) < tol
         for p in pois
