@@ -227,7 +227,6 @@ def main():
             try:
                 tui.update_positions(mt4.get_positions())
                 tui.update_account(mt4.get_account())
-                tui.update_market({"price": mt4.get_price(config.SYMBOL)})
                 if not _mt4_poll_ok[0]:
                     _mt4_poll_ok[0] = True
                     logger.info("MT4 reconnected")

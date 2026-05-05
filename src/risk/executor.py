@@ -177,8 +177,11 @@ def execute(decision: dict, context: dict, mt4: MT4Client, cfg) -> str:
         min_lot, max_lot, lot_step = _LOTS_MIN, _LOTS_MAX, 0.01
 
     # Lot sizing
-    risk_amount = balance * (cfg.MAX_RISK_PCT / 100.0)
-    lots = risk_amount / (sl_pips * _PIP_SIZE * 100)
+    if getattr(cfg, "FIXED_LOTS", 0.0) > 0:
+        lots = cfg.FIXED_LOTS
+    else:
+        risk_amount = balance * (cfg.MAX_RISK_PCT / 100.0)
+        lots = risk_amount / (sl_pips * _PIP_SIZE * 100)
 
     ticket, final_lots, error = _attempt_order(
         action, mt4, symbol, lots, sl, tp, min_lot, max_lot, lot_step
