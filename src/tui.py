@@ -48,7 +48,10 @@ class _Header(Static):
 class _AccountPanel(Static):
     def on_mount(self) -> None:
         self.border_title = "ACCOUNT"
-        self.update(Text("No MT4 connection", style="red italic"))
+        self.update(Text("Connecting to MT4...", style="yellow italic"))
+
+    def set_connecting(self) -> None:
+        self.update(Text("Connecting to MT4...", style="yellow italic"))
 
     def set_data(self, account: dict, connected: bool) -> None:
         if not connected or not account:
@@ -368,6 +371,9 @@ class TUI:
     def set_state(self, text: str, sub: str = "") -> None:
         _t, _s = text, sub
         self._call(lambda: self._app.query_one("#status", _StatusPanel).set_data(_t, _s))
+
+    def set_connecting(self) -> None:
+        self._call(lambda: self._app.query_one("#account", _AccountPanel).set_connecting())
 
     def set_disconnected(self) -> None:
         self._connected = False

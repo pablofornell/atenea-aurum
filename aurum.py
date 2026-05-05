@@ -202,10 +202,12 @@ def main():
     _stop_poll = threading.Event()
     _mt4_poll_ok = [True]
 
-    def _poll_positions():
+    def _poll_mt4():
         while not _stop_poll.wait(5.0):
             try:
                 tui.update_positions(mt4.get_positions())
+                tui.update_account(mt4.get_account())
+                tui.update_market({"price": mt4.get_price(config.SYMBOL)})
                 if not _mt4_poll_ok[0]:
                     _mt4_poll_ok[0] = True
                     logger.info("MT4 reconnected")
@@ -223,11 +225,12 @@ def main():
 
         try:
             mt4.connect()
+            tui.set_connecting()
         except MT4ConnectionError as e:
             logger.error(str(e))
             tui.set_state("No MT4 connection — retrying each cycle")
 
-        threading.Thread(target=_poll_positions, daemon=True, name="positions-poll").start()
+        threading.Thread(target=_poll_mt4, daemon=True, name="mt4-poll").start()
         sched.run(cycle, cfg=config, on_sleep=on_sleep, on_error=on_error)
 
     except KeyboardInterrupt:
