@@ -1,19 +1,39 @@
 #!/usr/bin/env python3
 """
 Test the live connection with the MT4 Expert Advisor.
-Run: python tests/test_mt4_connection.py
+Run: python tests/test_mt4_connection.py [--mode demo|prod]
 
-Requires MT4 running with AURUM_Bridge EA attached and listening.
-Mirrors the call sequence and data volumes used by build_context() + executor.py.
+  --mode demo  XAUUSD on port 5555  (default)
+  --mode prod  XAUUSD.mm on port 5556
+
+Requires MT4 running with AURUM_Bridge EA attached and listening on the
+matching port. Mirrors the call sequence and data volumes used by
+build_context() + executor.py.
 
 NOTE: the EA only accepts one client at a time. If aurum.py is already running
 and holding the connection, this test will fail. Stop the bot before running.
 """
+import importlib
+import os
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
+# Apply --mode before importing config so the profile is selected correctly
+if "--mode" in sys.argv:
+    idx = sys.argv.index("--mode")
+    if idx + 1 >= len(sys.argv):
+        print("Error: --mode requires an argument (demo or prod)")
+        sys.exit(1)
+    _mode = sys.argv[idx + 1].lower()
+    if _mode not in ("demo", "prod"):
+        print(f"Error: unknown mode '{_mode}'. Use 'demo' or 'prod'.")
+        sys.exit(1)
+    os.environ["AURUM_MODE"] = _mode
+
 import config
+importlib.reload(config)  # ensure env var is applied even if config was cached
 from bridge.mt4_client import MT4Client, MT4ConnectionError
 
 PASS = "\033[32mPASS\033[0m"
@@ -30,7 +50,7 @@ def check(label: str, ok: bool, detail: str = "") -> bool:
 
 
 def main() -> None:
-    print(f"\nMT4 connection test  ({config.MT4_HOST}:{config.MT4_PORT})\n")
+    print(f"\nMT4 connection test  mode={config.MODE.upper()}  symbol={config.SYMBOL}  ({config.MT4_HOST}:{config.MT4_PORT})\n")
     all_ok = True
     mt4 = MT4Client(config.MT4_HOST, config.MT4_PORT)
 

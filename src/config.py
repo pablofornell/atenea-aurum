@@ -1,4 +1,16 @@
-SYMBOL         = "XAUUSD"
+import os
+
+# Mode: "demo" → XAUUSD (testing)  |  "prod" → XAUUSD.mm (real money)
+# Set via CLI: python aurum.py --mode prod
+_PROFILES = {
+    "demo": "XAUUSD",
+    "prod": "XAUUSD.mm",
+}
+MODE = os.environ.get("AURUM_MODE", "demo").lower()
+if MODE not in _PROFILES:
+    raise ValueError(f"Unknown AURUM_MODE '{MODE}'. Use 'demo' or 'prod'.")
+
+SYMBOL         = _PROFILES[MODE]
 MT4_HOST       = "127.0.0.1"
 MT4_PORT       = 5555
 MAGIC_NUMBER   = 20240101
@@ -30,9 +42,9 @@ CLAUDE_CLI     = r"C:\Users\hefesto-w10x64\AppData\Local\Microsoft\WinGet\Packag
 STRATEGY_DIR   = "./src/strategy"
 MAX_TOKENS     = 1000
 
-# Persistent state
+# Persistent state (per-mode so demo and prod don't share structural state)
 STATE_DIR      = "./state"
-STATE_FILE     = "./state/structural_state.json"
+STATE_FILE     = f"./state/structural_state_{MODE}.json"
 
 # Data per cycle
 CANDLES_H4     = 20

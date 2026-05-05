@@ -1,4 +1,5 @@
 import importlib
+import os
 import sys
 import threading
 from pathlib import Path
@@ -46,11 +47,24 @@ def _handle_reset(state_file: str) -> None:
 
 
 def main():
+    # Resolve --mode before any config use so importlib.reload picks it up
+    if "--mode" in sys.argv:
+        idx = sys.argv.index("--mode")
+        if idx + 1 >= len(sys.argv):
+            print("Error: --mode requires an argument (demo or prod)")
+            sys.exit(1)
+        mode = sys.argv[idx + 1].lower()
+        if mode not in ("demo", "prod"):
+            print(f"Error: unknown mode '{mode}'. Use 'demo' or 'prod'.")
+            sys.exit(1)
+        os.environ["AURUM_MODE"] = mode
+
     if "--reset-bot-state" in sys.argv:
         importlib.reload(config)
         _handle_reset(config.STATE_FILE)
         return
 
+    importlib.reload(config)  # apply AURUM_MODE before creating MT4Client
     tui    = TUI()
     logger = AurumLogger(tui=tui)
     mt4    = MT4Client(config.MT4_HOST, config.MT4_PORT)
@@ -205,7 +219,7 @@ def main():
 
     try:
         tui.start()
-        logger.info("AURUM starting...")
+        logger.info(f"AURUM starting... mode={config.MODE.upper()}  symbol={config.SYMBOL}  port={config.MT4_PORT}")
 
         try:
             mt4.connect()
