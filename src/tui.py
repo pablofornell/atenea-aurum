@@ -8,6 +8,7 @@ import threading
 import time
 from datetime import datetime, timezone
 
+import config
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal
@@ -35,8 +36,12 @@ class _Header(Static):
         clock = datetime.now(timezone.utc).strftime("%H:%M:%S")
         t = Text(justify="center")
         t.append(" AURUM ", style="bold white on red")
-        t.append("  XAUUSD · Gold/USD   ", style="white")
-        t.append(clock, style="bright_cyan")
+        t.append(f"  {config.SYMBOL} · Gold/USD   ", style="white")
+        if config.MODE == "prod":
+            t.append(" PROD ", style="bold white on red")
+        else:
+            t.append(" DEMO ", style="bold black on yellow")
+        t.append(f"   {clock}", style="bright_cyan")
         self.update(t)
 
 

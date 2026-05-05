@@ -31,3 +31,4 @@ config.local.py
 for_the_future/
 state/structural_state.json
 state/structural_state.previous.json
+state/structural_state_prod.json
