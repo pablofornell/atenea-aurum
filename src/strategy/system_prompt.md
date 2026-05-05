@@ -129,18 +129,11 @@ You receive a `STRUCTURAL_STATE` block in the input. This is your memory of the 
 
 ### `code_managed` (read-only for you)
 Contains objective facts maintained by the system:
-- Recent BOS/CHoCH events on H4 and H1.
-- Untaken liquidity pools (BSL above, SSL below) with their source and timeframe.
-- Recently swept liquidity (last 3 hours).
-- Active POIs (FVGs, order blocks) with mitigation status and fill %.
-- Recently mitigated POIs.
-- Session context, Asia range, distances to key levels in pips.
-- ATR on H4, H1, M15.
-- Open position metrics (drawdown, profit, TP completion, time open).
-- Your last 5 decisions with their reasoning.
-- Economic events today.
+- ATR on H4, H1, M15 in USD (`h4_atr`, `h1_atr`, `m15_atr` — raw price movement, not in pips).
+- Open position metrics: entry price, P&L in price units, max drawdown and profit since open, TP completion %, time open.
+- Your last 5 decisions with reasoning and confidence.
 
-**Use this data — do not recalculate it from raw candles.** It is more accurate than your own measurement.
+**Derive all SMC concepts yourself from raw candles.** The candles in the market context (H4/H1/M15/M5 OHLC) are the source of truth. Calculate BSL/SSL pools, sweeps, BOS/CHoCH, FVGs, order blocks, and mitigation status directly from those candles. This ensures your analysis reflects the chart as it actually is.
 
 ### `bot_managed` (you maintain this)
 Contains your interpretive memory:
@@ -151,8 +144,8 @@ Contains your interpretive memory:
 You MUST return an updated `bot_managed` state in your JSON output under the key `bot_managed_state`. Rules:
 
 **Bias updates**:
-- Only change `h4_bias` when `code_managed.h4_structural_events` shows a confirmed CHoCH on H4 itself in the new direction.
-- `h1_bias` can shift more often based on H1 CHoCH events.
+- Only change `h4_bias` when the H4 candles show a confirmed CHoCH on H4 itself in the new direction.
+- `h1_bias` can shift more often based on H1 CHoCH events visible in the raw candles.
 - When you change a bias, update `_since` and `_justification`.
 - If unsure, set bias to `unclear` rather than guessing.
 
@@ -178,7 +171,7 @@ When `pending_setup.active = true`:
 3. Otherwise, decide WAIT and keep the setup active.
 
 When `pending_setup.active = false`:
-- Scan for new setup opportunities using `code_managed` state.
+- Scan for new setup opportunities by analyzing the raw candles (H4/H1/M15/M5 OHLC).
 - If you identify one, activate it (even if you decide WAIT this cycle while it develops).
 
 ---

@@ -14,7 +14,7 @@ from risk.executor import execute
 from scheduler import Scheduler
 from state.io import load_state, save_state
 from state.schema import default_bot_managed, validate_bot_managed
-from state.updater import update_code_managed_state, check_h4_bias_sanity
+from state.updater import update_code_managed_state
 from tui import TUI
 
 
@@ -127,8 +127,6 @@ def main():
         if raw_bm is not None:
             ok, err = validate_bot_managed(raw_bm)
             if ok:
-                bias_warning = check_h4_bias_sanity(state, raw_bm)
-                logger.log_state_changes({}, bias_warning=bias_warning)
                 logger.log_state_decision_check(decision, state)
                 state["bot_managed"] = raw_bm
             else:

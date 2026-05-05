@@ -112,35 +112,18 @@ def serialize_for_prompt(
 
 
 def _serialize_state(state: dict) -> str:
-    """Serialize structural state for prompt injection, omitting empty/null fields."""
-    cm_raw = state.get("code_managed", {})
+    cm = state.get("code_managed", {})
     bm = state.get("bot_managed", {})
 
-    compact_cm = {}
-    for key, val in cm_raw.items():
-        if isinstance(val, list) and not val:
-            continue
-        if val is None:
-            continue
-        if isinstance(val, dict):
-            # Omit dicts that are all-zero or all-null
-            non_empty = {k: v for k, v in val.items() if v is not None and v != 0 and v != 0.0}
-            if not non_empty:
-                continue
-            compact_cm[key] = val
-        else:
-            compact_cm[key] = val
+    # Omit open_position_metrics if no position open
+    cm_out = {k: v for k, v in cm.items() if k != "open_position_metrics"}
+    metrics = cm.get("open_position_metrics", {})
+    if metrics.get("ticket") is not None:
+        cm_out["open_position_metrics"] = metrics
 
-    # Omit open_position_metrics if no position
-    metrics = compact_cm.get("open_position_metrics", {})
-    if metrics.get("ticket") is None:
-        compact_cm.pop("open_position_metrics", None)
+    # Omit empty lists
+    cm_out = {k: v for k, v in cm_out.items()
+              if not (isinstance(v, list) and not v)}
 
-    # Strip mitigated POIs — kept in state for deduplication but not relevant to agent
-    if "active_pois" in compact_cm:
-        compact_cm["active_pois"] = [p for p in compact_cm["active_pois"] if not p.get("mitigated")]
-        if not compact_cm["active_pois"]:
-            compact_cm.pop("active_pois")
-
-    payload = {"code_managed": compact_cm, "bot_managed": bm}
+    payload = {"code_managed": cm_out, "bot_managed": bm}
     return "STRUCTURAL_STATE:\n" + json.dumps(payload, indent=2)

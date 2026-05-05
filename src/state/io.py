@@ -22,9 +22,19 @@ def load_state(path: str) -> dict:
     except (json.JSONDecodeError, OSError):
         return default_state()
 
-    # Migrate schema if needed (forward-compatible: just return defaults for unknown versions)
+    # Migrate schema if needed — preserve bot memory across version bumps
     if data.get("schema_version") != SCHEMA_VERSION:
-        return default_state()
+        new_state = default_state()
+        old_bm = data.get("bot_managed")
+        if isinstance(old_bm, dict):
+            from state.schema import validate_bot_managed
+            ok, _ = validate_bot_managed(old_bm)
+            if ok:
+                new_state["bot_managed"] = old_bm
+        old_decisions = data.get("code_managed", {}).get("recent_decisions", [])
+        if old_decisions:
+            new_state["code_managed"]["recent_decisions"] = old_decisions[-5:]
+        return new_state
 
     # Fill any missing keys from defaults (graceful forward-compat)
     defaults = default_state()

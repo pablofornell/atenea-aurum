@@ -2,7 +2,7 @@
 Default state structure and bot_managed validation.
 """
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _VALID_BIASES = {"bullish", "bearish", "ranging", "unclear"}
 _VALID_DECISIONS = {"BUY", "SELL", "WAIT", "HOLD", "CLOSE"}
@@ -44,42 +44,20 @@ def default_state() -> dict:
         "last_updated": None,
         "schema_version": SCHEMA_VERSION,
         "code_managed": {
-            "h4_structural_events": [],
-            "h1_structural_events": [],
-            "untaken_liquidity": {"bsl": [], "ssl": []},
-            "swept_liquidity_recent": [],
-            "active_pois": [],
-            "mitigated_pois_recent": [],
-            "session_context": {
-                "current_session": "off",
-                "killzone_active": False,
-                "asia_range": {"high": 0.0, "low": 0.0},
-                "london_open_price": 0.0,
-                "ny_open_price": 0.0,
-            },
-            "distances": {
-                "to_pdh_pips": 0,
-                "to_pdl_pips": 0,
-                "to_pwh_pips": 0,
-                "to_pwl_pips": 0,
-                "to_asia_high_pips": 0,
-                "to_asia_low_pips": 0,
-                "to_nearest_untaken_bsl_pips": 0,
-                "to_nearest_untaken_ssl_pips": 0,
-            },
             "atr": {
-                "h4_pips": 0,
-                "h1_pips": 0,
-                "m15_pips": 0,
+                "h4_atr": 0.0,
+                "h1_atr": 0.0,
+                "m15_atr": 0.0,
             },
             "open_position_metrics": {
                 "ticket": None,
                 "type": None,
                 "entry_price": 0.0,
-                "current_pnl_pips": 0,
-                "max_drawdown_pips": 0,
-                "max_profit_pips": 0,
+                "pnl_price": 0.0,
+                "max_drawdown_price": 0.0,
+                "max_profit_price": 0.0,
                 "tp_completion_pct": 0.0,
+                "opened_at": None,
                 "minutes_open": 0,
             },
             "recent_decisions": [],
