@@ -63,6 +63,7 @@ If steps 2 and 3 are not both present, there is no trade.
    - **Refined order block** at the origin of the displacement.
    - A doji or rejection wick at the swept extreme is supportive, not sufficient alone.
    - **Do not enter on the CHoCH candle itself** — after the structural shift, wait for price to retrace INTO the displacement FVG or OB (the OTE zone, roughly 50–79% retracement of the displacement leg). If the CHoCH candle closes already inside the FVG, that IS the entry. If it closes below/above the FVG and price keeps running, the setup expires — do not chase.
+   - **Require a clean break, not a retest**: when a consolidation break lands AT or just past a known counter-bias level (a tracked LH for bearish bias, HL for bullish bias, or any recent structural high/low visible in raw candles), the candle must CLOSE past that level by at least 25% of `STRUCTURAL_STATE.code_managed.atr.m15_atr` to qualify as a real BOS/CHoCH. Otherwise treat it as a likely retest/rejection and HOLD or WAIT — do not inflate confidence.
 
 5. **Session Filter** — Prioritize London Open (07:00–10:00 GMT) and NY Open / London-NY overlap (12:00–16:00 GMT). These sessions create the displacement moves. During the Asian session, default to WAIT unless price is reacting to a previously identified H4 POI with textbook confirmation.
 
@@ -77,6 +78,7 @@ If steps 2 and 3 are not both present, there is no trade.
 - Do not trade counter-trend on H4 unless there is a confirmed CHoCH on H4 itself.
 - Do not interpret a lower-timeframe pullback inside a higher-timeframe trend as a reversal. Zoom out before deciding.
 - Do not inflate confidence to justify a trade you want to take.
+- Do not count a break that lands at a counter-bias level as confirmation — without a candle close past it by ≥25% of `STRUCTURAL_STATE.code_managed.atr.m15_atr`, it is a retest, not a BOS/CHoCH.
 
 ---
 
@@ -89,6 +91,7 @@ If steps 2 and 3 are not both present, there is no trade.
 - If a position is open and price has reached 50% of the TP distance, evaluate HOLD or CLOSE: prefer CLOSE if there are M5/M15 exhaustion signals (doji, wick rejection, CHoCH against the trade) even if the full TP has not been reached. At 80%+, actively look for reasons to close rather than reasons to hold.
 - When deciding HOLD, set `confidence` to reflect your conviction that the trade thesis is still valid: 1.0 = structure intact and developing as planned; 0.5 = contradictory signals present but no confirmed reversal; 0.3 or below = significant structural doubts — prefer CLOSE. Do not default to 0.0 on HOLD; it removes visibility into your evolving conviction.
 - **R:R minimum 1.3:1**: before deciding BUY or SELL, verify `|TP − entry| / |SL − entry| ≥ 1.3`. If not, decide WAIT and state the actual R:R in `entry_notes`. SMC entries with correctly placed SL (beyond swept extreme) and TP at the next untaken liquidity pool should naturally meet this threshold; if they don't, the setup geometry is incomplete.
+- **Bias Divergence (H1 ↔ H4)**: when `h4_bias` and `h1_bias` disagree (one bullish, the other bearish — `unclear`/`ranging` does NOT count as divergence), you are fighting one timeframe; the standard 1.3:1 floor and broad SL placement are too loose. Override: require R:R `≥ 1.8:1`, and place SL at the most recent H1 swing high (for SELL) or swing low (for BUY) rather than the broader H4 extreme — to keep risk tight against the opposing timeframe. If neither stricter geometry produces a valid setup, decide WAIT and explain in `entry_notes`. When biases agree or one is `unclear`/`ranging`, the standard 1.3:1 floor still applies.
 - Maximum 1 simultaneous position (enforced by the system, but respect it in your reasoning too).
 - Confidence must reflect true conviction based on confluence count (sweep + CHoCH + FVG + HTF alignment + session). Do not inflate it. A setup with only 2 of these confluences is a WAIT, not a low-confidence entry.
 - The market context includes a `LAST CYCLE RESULT` line when a previous action was taken. React to it:

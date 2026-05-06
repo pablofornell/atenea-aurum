@@ -18,6 +18,9 @@ from state.updater import update_code_managed_state
 from tui import TUI
 
 
+_PIP_SIZE = 0.10   # 1 pip for XAUUSD (matches src/risk/executor.py)
+
+
 def _tp_progress(pos: dict, current_price: float) -> float:
     """Returns TP progress as a fraction 0.0–1.0+ (can exceed 1.0 past TP)."""
     entry = pos["open"]
@@ -156,6 +159,36 @@ def main():
                             f"AUTO_CLOSE ticket={ticket} — profit {profit:.2f} "
                             f"({profit / balance * 100:.1f}% of balance, "
                             f"threshold {auto_close_pct}%)"
+                        )
+                    except Exception as exc:
+                        ac_msg = f"AUTO_CLOSE FAILED ticket={ticket}: {exc}"
+                    logger.info(ac_msg)
+                    last_result[0] = ac_msg
+                    save_state(state, config.STATE_FILE)
+                    return config.INTERVAL_NO_POSITION
+
+        # Auto-close pip-profit guard — overrides agent's TP, runs before agent to avoid wasting an API call
+        auto_close_pips = getattr(config, "AUTO_CLOSE_PROFIT_PIPS", 0.0)
+        if auto_close_pips > 0:
+            for pos in context["positions"]:
+                entry  = pos["open"]
+                ticket = pos["ticket"]
+                profit = pos["profit"]
+                is_buy = str(pos["type"]).upper() in ("BUY", "0")
+                if is_buy:
+                    close_price = context["price"]["bid"]
+                    pip_profit  = (close_price - entry) / _PIP_SIZE
+                else:
+                    close_price = context["price"]["ask"]
+                    pip_profit  = (entry - close_price) / _PIP_SIZE
+
+                if pip_profit >= auto_close_pips:
+                    try:
+                        mt4.close(ticket)
+                        ac_msg = (
+                            f"AUTO_CLOSE ticket={ticket} — closed by system at "
+                            f"+{pip_profit:.1f} pips (threshold {auto_close_pips} pips, "
+                            f"profit {profit:.2f})"
                         )
                     except Exception as exc:
                         ac_msg = f"AUTO_CLOSE FAILED ticket={ticket}: {exc}"
