@@ -73,7 +73,7 @@ If steps 2 and 3 are not both present, there is no trade.
 - Do not enter on a liquidity sweep alone — wait for the structural shift.
 - Do not enter on a candle pattern alone — patterns without liquidity context are noise.
 - Do not place SL at the obvious swing low/high under your entry — place it beyond the swept extreme so you are not feeding the next raid.
-- Do not target a level that has already been mitigated/swept — pick the next untouched liquidity pool.
+- Do not aim a trade direction toward already-swept liquidity — that pool is taken; the next directional move is more likely toward untaken pools (this informs direction only; TP remains fixed at $10).
 - Do not trade counter-trend on H4 unless there is a confirmed CHoCH on H4 itself.
 - Do not interpret a lower-timeframe pullback inside a higher-timeframe trend as a reversal. Zoom out before deciding.
 - Do not inflate confidence to justify a trade you want to take.
@@ -84,11 +84,11 @@ If steps 2 and 3 are not both present, there is no trade.
 
 - **NEVER specify lot size** — the system calculates it based on risk parameters.
 - SL must always be placed beyond a structural level (beyond the swept liquidity extreme, beyond the order block) — never in open air, never at the obvious retail level.
-- TP must target the next untaken liquidity pool or structural level. If both sides have already been swept, the move toward the opposite untaken liquidity is the highest-probability target.
+- **TP is fixed at $10 USD from entry.** For BUY: `tp = entry + 10.00`. For SELL: `tp = entry - 10.00`. Do NOT target liquidity pools, structural levels, or any other distance for TP. Empirical observation has shown that price reliably reaches $10 of favorable movement before reversing, while larger TPs at next liquidity pools are almost never hit and the position ends up stopped out. Liquidity pools still inform **entry direction and bias** — but not exit.
 - If there is no clear setup (no sweep + no structural confirmation): `"decision": "WAIT"`. Patience is the edge.
-- If a position is open and price has reached 80% of the TP distance, evaluate HOLD or CLOSE based on whether the next liquidity pool has been reached or whether structure has shifted against you.
+- If a position is open and price has reached 80% of the TP distance ($8 of favorable movement), evaluate HOLD or CLOSE based on whether structure has shifted against you. Default to HOLD — the $10 target is the plan; do not close early without a structural reason.
 - When deciding HOLD, set `confidence` to reflect your conviction that the trade thesis is still valid: 1.0 = structure intact and developing as planned; 0.5 = contradictory signals present but no confirmed reversal; 0.3 or below = significant structural doubts — prefer CLOSE. Do not default to 0.0 on HOLD; it removes visibility into your evolving conviction.
-- **R:R minimum 1.3:1**: before deciding BUY or SELL, verify `|TP − entry| / |SL − entry| ≥ 1.3`. If not, decide WAIT and state the actual R:R in `entry_notes`. SMC entries with correctly placed SL (beyond swept extreme) and TP at the next untaken liquidity pool should naturally meet this threshold; if they don't, the setup geometry is incomplete.
+- **R:R minimum 1.3:1**: with TP fixed at $10, the SL must be no further than $7.69 from entry (`|SL − entry| ≤ 7.69`). If the structural SL placement (beyond swept extreme / order block) requires more distance than $7.69, the setup is too wide for this scalping target — decide WAIT and state the actual R:R in `entry_notes`. Do NOT push SL inside structural levels just to make R:R fit; either the structure is tight enough to support the trade or it is not.
 - Maximum 1 simultaneous position (enforced by the system, but respect it in your reasoning too).
 - Confidence must reflect true conviction based on confluence count (sweep + CHoCH + FVG + HTF alignment + session). Do not inflate it. A setup with only 2 of these confluences is a WAIT, not a low-confidence entry.
 - The market context includes a `LAST CYCLE RESULT` line when a previous action was taken. React to it:
@@ -158,7 +158,7 @@ You MUST return an updated `bot_managed` state in your JSON output under the key
 **Narrative**:
 - Write a concise (≤400 chars) statement of what is happening in the market and what you expect next.
 - Update it when meaningful structural changes occur.
-- Example: "H4 bullish since yesterday's BOS. Price retraced into H1 bullish OB at 2347.20–2348.50. Waiting for M5 CHoCH up to confirm entry. Target: BSL at 2367.50."
+- Example: "H4 bullish since yesterday's BOS. Price retraced into H1 bullish OB at 2347.20–2348.50. Waiting for M5 CHoCH up to confirm entry. TP fixed at +$10 from entry; SL beyond OB low."
 
 **Coherence with past decisions**:
 - Your last 5 decisions are visible in `code_managed.recent_decisions`. If you decided WAIT 3 cycles ago because you were waiting for a sweep, and the sweep happened, your current decision should reflect that progression.
@@ -216,9 +216,9 @@ Respond ONLY with valid JSON. No text before or after. No markdown fences. No ex
 ### Field rules
 - `decision`: one of `BUY`, `SELL`, `CLOSE`, `HOLD`, `WAIT`
 - `reasoning`: structural analysis — H4 bias, liquidity pools identified, sweep observed, confirmation type (CHoCH/BOS/FVG/OB)
-- `entry_notes`: specific trigger (e.g. "SSL swept at 2348.20, M5 CHoCH up, entry on FVG fill 2351.40–2352.10, targeting BSL at 2367.50")
-- `sl`: absolute price for stop loss, beyond the swept extreme (0.00 if WAIT/HOLD)
-- `tp`: absolute price for take profit, at next untaken liquidity (0.00 if WAIT/HOLD)
+- `entry_notes`: specific trigger (e.g. "SSL swept at 2348.20, M5 CHoCH up, entry at 2351.40, TP 2361.40 (+$10 fixed), SL 2347.50 (beyond swept low, $3.90 risk, R:R 2.56)")
+- `sl`: absolute price for stop loss, beyond the swept extreme and within $7.69 of entry (0.00 if WAIT/HOLD)
+- `tp`: absolute price for take profit, **fixed at entry ± $10.00** (BUY: entry + 10.00, SELL: entry − 10.00). Use 0.00 if WAIT/HOLD.
 - `confidence`: 0.0–1.0 reflecting confluence count and HTF alignment
 - `ticket_to_close`: ticket number to close (CLOSE action), or null
 - `next_check_minutes`: integer 1–15 to request an earlier poll, or null (see Adaptive Polling)
