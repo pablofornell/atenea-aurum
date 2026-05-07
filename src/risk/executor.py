@@ -3,7 +3,7 @@ import time
 from bridge.mt4_client import MT4Client, MT4Error
 
 
-_PIP_SIZE = 0.10   # 1 pip = $0.10 per 0.01 lot
+_PIP_SIZE = 0.01   # 1 pip = $0.01 of XAUUSD price ($10 price move = 1000 pips)
 _LOTS_MIN = 0.01
 _LOTS_MAX = 5.00
 _DD_GUARD = 0.95   # equity / balance threshold

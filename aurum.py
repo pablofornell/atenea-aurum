@@ -18,7 +18,7 @@ from state.updater import update_code_managed_state
 from tui import TUI
 
 
-_PIP_SIZE = 0.10   # 1 pip for XAUUSD (matches src/risk/executor.py)
+_PIP_SIZE = 0.01   # 1 pip for XAUUSD (matches src/risk/executor.py)
 
 
 def _tp_progress(pos: dict, current_price: float) -> float:
