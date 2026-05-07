@@ -30,6 +30,7 @@ def _attempt_order(
     action: str, mt4: MT4Client, symbol: str,
     lots: float, sl: float, tp: float,
     min_lot: float, max_lot: float, lot_step: float,
+    fixed_lots: bool = False,
 ) -> tuple[int | None, float, str | None]:
     """Send BUY/SELL with retry logic for recoverable errors.
     Returns (ticket, final_lots, None) on success or (None, lots, error_msg) on failure."""
@@ -61,7 +62,13 @@ def _attempt_order(
                 return None, lots, f"ERROR: persistent requote ({code}) — market moving too fast"
 
             # ── Correctable: not enough margin → halve lots and retry ─────────
+            # When fixed_lots is active, FIXED_LOTS has total authority — no auto-reduction.
             if code == 134:
+                if fixed_lots:
+                    return None, lots, (
+                        f"ERROR: insufficient margin (134) for FIXED_LOTS={lots:.2f} — "
+                        f"reduce FIXED_LOTS in config or add funds"
+                    )
                 reduced = _snap_lots(lots / 2, min_lot, max_lot, lot_step)
                 if reduced >= min_lot and reduced != lots:
                     lots = reduced
@@ -177,14 +184,16 @@ def execute(decision: dict, context: dict, mt4: MT4Client, cfg) -> str:
         min_lot, max_lot, lot_step = _LOTS_MIN, _LOTS_MAX, 0.01
 
     # Lot sizing
-    if getattr(cfg, "FIXED_LOTS", 0.0) > 0:
+    using_fixed_lots = getattr(cfg, "FIXED_LOTS", 0.0) > 0
+    if using_fixed_lots:
         lots = cfg.FIXED_LOTS
     else:
         risk_amount = balance * (cfg.MAX_RISK_PCT / 100.0)
         lots = risk_amount / (sl_pips * _PIP_SIZE * 100)
 
     ticket, final_lots, error = _attempt_order(
-        action, mt4, symbol, lots, sl, tp, min_lot, max_lot, lot_step
+        action, mt4, symbol, lots, sl, tp, min_lot, max_lot, lot_step,
+        fixed_lots=using_fixed_lots,
     )
     if error:
         return error
