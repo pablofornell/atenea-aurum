@@ -15,10 +15,14 @@ MT4_HOST       = "127.0.0.1"
 MT4_PORT       = 5555
 MAGIC_NUMBER   = 20240101
 
+# Instrument — XAUUSD: 1 pip = 0.10 price movement = 10 points (MODE_POINT = 0.01)
+PIP_SIZE = 0.10
+
 # Risk — NEVER delegated to the agent
 MAX_RISK_PCT          = 2    # % of balance per trade
 MAX_OPEN_TRADES       = 1    # max simultaneous positions
 AUTO_CLOSE_PROFIT_PCT = 0.0  # close automatically when trade profit >= N% of balance (0 = disabled)
+AUTO_CLOSE_PROFIT_PIPS = 0.0 # close automatically when trade profit >= N pips (0 = disabled). 1 pip = 0.10 price = 10 MT4 points
 FIXED_LOTS            = 0.0  # if > 0, always use this lot size (overrides risk-based sizing)
 
 # Cycle

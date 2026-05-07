@@ -133,6 +133,36 @@ def main():
                     save_state(state, config.STATE_FILE)
                     return config.INTERVAL_NO_POSITION
 
+        # Auto-close pip profit guard — runs before agent to save an API call
+        auto_close_pips = getattr(config, "AUTO_CLOSE_PROFIT_PIPS", 0.0)
+        if auto_close_pips > 0:
+            bid = context["price"]["bid"]
+            ask = context["price"]["ask"]
+            for pos in context["positions"]:
+                is_buy     = str(pos["type"]).upper() in ("BUY", "0")
+                exit_price = bid if is_buy else ask
+                entry      = pos["open"]
+                pips_gained = (
+                    (exit_price - entry) / config.PIP_SIZE if is_buy
+                    else (entry - exit_price) / config.PIP_SIZE
+                )
+                if pips_gained >= auto_close_pips:
+                    ticket = pos["ticket"]
+                    try:
+                        mt4.close(ticket)
+                        ap_msg = (
+                            f"AUTO_CLOSE_PIPS ticket={ticket} — pips=+{pips_gained:.1f} "
+                            f"(threshold {auto_close_pips:.1f}) "
+                            f"entry={entry:.2f} exit={exit_price:.2f} "
+                            f"profit_usd={pos['profit']:.2f}"
+                        )
+                    except Exception as exc:
+                        ap_msg = f"AUTO_CLOSE_PIPS FAILED ticket={ticket}: {exc}"
+                    logger.info(ap_msg)
+                    last_result[0] = ap_msg
+                    save_state(state, config.STATE_FILE)
+                    return config.INTERVAL_NO_POSITION
+
         # Phase 3 — agent
         tui.set_state("Querying agent...", f"Cycle {n}  ·  Step 3/4")
         market_text   = serialize_for_prompt(

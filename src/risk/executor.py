@@ -1,9 +1,8 @@
 import time
 
 from bridge.mt4_client import MT4Client, MT4Error
+from config import PIP_SIZE as _PIP_SIZE
 
-
-_PIP_SIZE = 0.10   # 1 pip = $0.10 per 0.01 lot
 _LOTS_MIN = 0.01
 _LOTS_MAX = 5.00
 _DD_GUARD = 0.95   # equity / balance threshold
