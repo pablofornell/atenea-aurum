@@ -111,28 +111,6 @@ def main():
                     logger.info(be_msg)
                     last_result[0] = be_msg
 
-        # Auto-close profit guard — triggers before agent to avoid wasting an API call
-        auto_close_pct = getattr(config, "AUTO_CLOSE_PROFIT_PCT", 0.0)
-        if auto_close_pct > 0:
-            balance = context["account"]["balance"]
-            for pos in context["positions"]:
-                profit = pos["profit"]
-                if balance > 0 and profit >= balance * (auto_close_pct / 100.0):
-                    ticket = pos["ticket"]
-                    try:
-                        mt4.close(ticket)
-                        ac_msg = (
-                            f"AUTO_CLOSE ticket={ticket} — profit {profit:.2f} "
-                            f"({profit / balance * 100:.1f}% of balance, "
-                            f"threshold {auto_close_pct}%)"
-                        )
-                    except Exception as exc:
-                        ac_msg = f"AUTO_CLOSE FAILED ticket={ticket}: {exc}"
-                    logger.info(ac_msg)
-                    last_result[0] = ac_msg
-                    save_state(state, config.STATE_FILE)
-                    return config.INTERVAL_NO_POSITION
-
         # Phase 3 — agent
         tui.set_state("Querying agent...", f"Cycle {n}  ·  Step 3/4")
         market_text   = serialize_for_prompt(
@@ -225,11 +203,34 @@ def main():
     def _poll_mt4():
         while not _stop_poll.wait(5.0):
             try:
-                tui.update_positions(mt4.get_positions())
-                tui.update_account(mt4.get_account())
+                positions = mt4.get_positions()
+                account   = mt4.get_account()
+                tui.update_positions(positions)
+                tui.update_account(account)
                 if not _mt4_poll_ok[0]:
                     _mt4_poll_ok[0] = True
                     logger.info("MT4 reconnected")
+
+                # Auto-close monitor — runs every 5 s when positions are open
+                auto_close_pct = getattr(config, "AUTO_CLOSE_PROFIT_PCT", 0.0)
+                if auto_close_pct > 0 and positions:
+                    balance = account.get("balance", 0)
+                    if balance > 0:
+                        for pos in positions:
+                            profit = pos["profit"]
+                            if profit >= balance * (auto_close_pct / 100.0):
+                                ticket = pos["ticket"]
+                                try:
+                                    mt4.close(ticket)
+                                    ac_msg = (
+                                        f"AUTO_CLOSE ticket={ticket} — profit {profit:.2f} "
+                                        f"({profit / balance * 100:.1f}% of balance, "
+                                        f"threshold {auto_close_pct}%)"
+                                    )
+                                except Exception as exc:
+                                    ac_msg = f"AUTO_CLOSE FAILED ticket={ticket}: {exc}"
+                                logger.info(ac_msg)
+                                last_result[0] = ac_msg
             except MT4ConnectionError:
                 if _mt4_poll_ok[0]:
                     _mt4_poll_ok[0] = False
