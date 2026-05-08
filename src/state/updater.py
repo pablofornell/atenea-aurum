@@ -64,7 +64,6 @@ def _compute_atr(candles: list, period: int = 14) -> float:
 
 def _update_atr(state: dict, context: dict) -> None:
     atr = state["code_managed"]["atr"]
-    atr["h4_atr"] = round(_compute_atr(context["candles"].get("H4", [])), 2)
     atr["h1_atr"] = round(_compute_atr(context["candles"].get("H1", [])), 2)
     atr["m15_atr"] = round(_compute_atr(context["candles"].get("M15", [])), 2)
 

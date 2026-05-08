@@ -29,7 +29,6 @@ def build_context(mt4: MT4Client) -> dict:
     positions = mt4.get_positions()
 
     candles = {
-        "H4":  mt4.get_candles(config.SYMBOL, 240, config.CANDLES_H4),
         "H1":  mt4.get_candles(config.SYMBOL, 60,  config.CANDLES_H1),
         "M15": mt4.get_candles(config.SYMBOL, 15,  config.CANDLES_M15),
         "M5":  mt4.get_candles(config.SYMBOL, 5,   config.CANDLES_M5),
@@ -72,7 +71,6 @@ def serialize_for_prompt(
     ]
 
     for tf, label, count in [
-        ("H4",  "H4 CANDLES",  config.CANDLES_H4),
         ("H1",  "H1 CANDLES",  config.CANDLES_H1),
         ("M15", "M15 CANDLES", config.CANDLES_M15),
         ("M5",  "M5 CANDLES",  config.CANDLES_M5),

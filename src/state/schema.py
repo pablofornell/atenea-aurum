@@ -29,10 +29,8 @@ def default_pending_setup() -> dict:
 
 def default_bot_managed() -> dict:
     return {
-        "h4_bias": "unclear",
-        "h4_bias_since": None,
-        "h4_bias_justification": "",
         "h1_bias": "unclear",
+        "h1_bias_since": None,
         "h1_bias_justification": "",
         "pending_setup": default_pending_setup(),
         "narrative": "",
@@ -45,7 +43,6 @@ def default_state() -> dict:
         "schema_version": SCHEMA_VERSION,
         "code_managed": {
             "atr": {
-                "h4_atr": 0.0,
                 "h1_atr": 0.0,
                 "m15_atr": 0.0,
             },
@@ -73,15 +70,13 @@ def validate_bot_managed(bm: dict) -> tuple[bool, str]:
         return False, "bot_managed_state must be a dict"
 
     required = [
-        "h4_bias", "h4_bias_since", "h4_bias_justification",
-        "h1_bias", "h1_bias_justification", "pending_setup", "narrative",
+        "h1_bias", "h1_bias_since", "h1_bias_justification",
+        "pending_setup", "narrative",
     ]
     for key in required:
         if key not in bm:
             return False, f"missing key: {key}"
 
-    if bm.get("h4_bias") not in _VALID_BIASES:
-        return False, f"invalid h4_bias: {bm.get('h4_bias')!r}"
     if bm.get("h1_bias") not in _VALID_BIASES:
         return False, f"invalid h1_bias: {bm.get('h1_bias')!r}"
 

@@ -32,10 +32,8 @@ Required structure:
   "ticket_to_close": null,
   "next_check_minutes": null,
   "bot_managed_state": {
-    "h4_bias": "bullish|bearish|ranging|unclear",
-    "h4_bias_since": "ISO-8601 or null",
-    "h4_bias_justification": "string",
     "h1_bias": "bullish|bearish|ranging|unclear",
+    "h1_bias_since": "ISO-8601 or null",
     "h1_bias_justification": "string",
     "pending_setup": {
       "active": false,
