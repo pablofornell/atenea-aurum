@@ -33,8 +33,8 @@ INTERVAL_NEAR_TARGET   = 120   # 2 min  — position at ≥80% TP progress or ne
 # Killzones — UTC [start, end) hour pairs when the bot is allowed to open trades.
 # Set to [] to disable filtering and trade 24/5.
 KILLZONES = [
-    (7, 10),   # London open
-    (12, 15),  # NY open / London-NY overlap
+    (7, 11),   # London open + London close volatility
+    (12, 16),  # NY open / London-NY overlap + late NY momentum
 ]
 KILLZONE_FRI_CUTOFF = 19  # no new trades on Friday at or after this UTC hour
 KILLZONE_MON_START  = 2   # no new trades on Monday before this UTC hour
