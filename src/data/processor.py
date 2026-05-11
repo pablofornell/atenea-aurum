@@ -5,6 +5,39 @@ import config
 from bridge.mt4_client import MT4Client
 
 
+_TF_MINUTES = {"H1": 60, "M15": 15, "M5": 5}
+
+
+def _candle_staleness(candles_by_tf: dict) -> list[str]:
+    """Flag timeframes whose newest candle lags the freshest TF by >2× its period.
+
+    MT4 lazy-loads lower-timeframe series for symbols not actively charted, so
+    after a long Python idle period the first cycle can see e.g. fresh H1 but
+    stale M5/M15. Surfacing the gap explicitly lets the agent reason about it
+    rather than infer from raw timestamps.
+    """
+    newest: dict[str, datetime] = {}
+    for tf, candles in candles_by_tf.items():
+        if not candles:
+            continue
+        try:
+            newest[tf] = datetime.strptime(candles[-1].get("time", ""), "%Y.%m.%d %H:%M")
+        except ValueError:
+            continue
+    if not newest:
+        return []
+    reference = max(newest.values())
+    warnings: list[str] = []
+    for tf, t in newest.items():
+        gap_min = int((reference - t).total_seconds() / 60)
+        if gap_min > 2 * _TF_MINUTES.get(tf, 60):
+            warnings.append(
+                f"  {tf}: newest candle {t.strftime('%Y-%m-%d %H:%M')} server time"
+                f" ({gap_min}min behind freshest TF)"
+            )
+    return warnings
+
+
 def _current_session(utc_hour: int) -> str:
     if 22 <= utc_hour or utc_hour < 7:
         return "Asia"
@@ -69,6 +102,12 @@ def serialize_for_prompt(
         f"PREV WEEK: H {w['prev_high']:.2f} L {w['prev_low']:.2f} | CURR WEEK: H {w['curr_high']:.2f} L {w['curr_low']:.2f}",
         "",
     ]
+
+    staleness = _candle_staleness(ctx["candles"])
+    if staleness:
+        lines.append("DATA STALENESS WARNING — some candle series lag the freshest TF:")
+        lines.extend(staleness)
+        lines.append("")
 
     for tf, label, count in [
         ("H1",  "H1 CANDLES",  config.CANDLES_H1),
