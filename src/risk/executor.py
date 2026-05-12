@@ -1,3 +1,4 @@
+import math
 import time
 
 from bridge.mt4_client import MT4Client, MT4Error
@@ -188,8 +189,13 @@ def execute(decision: dict, context: dict, mt4: MT4Client, cfg) -> str:
     if using_fixed_lots:
         lots = cfg.FIXED_LOTS
     else:
-        risk_amount = balance * (cfg.MAX_RISK_PCT / 100.0)
-        lots = risk_amount / (sl_pips * _PIP_SIZE * 100)
+        # Capital-tier rule: 0.01 lots per 100€ of balance.
+        lots = math.floor(balance / 100) * 0.01
+        if lots <= 0:
+            return (
+                f"WAIT: insufficient capital ({balance:.2f}€) — "
+                f"need at least 100€ to size a trade"
+            )
 
     ticket, final_lots, error = _attempt_order(
         action, mt4, symbol, lots, sl, tp, min_lot, max_lot, lot_step,

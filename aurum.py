@@ -96,21 +96,6 @@ def main():
         )
         logger.log_state_changes(changes)
 
-        # Breakeven guard — move SL to entry when ≥50% TP progress
-        for pos in context["positions"]:
-            price  = context["price"]["bid"]
-            entry  = pos["open"]
-            sl     = pos["sl"]
-            tp     = pos["tp"]
-            ticket = pos["ticket"]
-            is_buy = str(pos["type"]).upper() in ("BUY", "0")
-            at_be  = (sl >= entry) if is_buy else (sl <= entry)
-            if not at_be and _tp_progress(pos, price) >= 0.50:
-                if mt4.modify(ticket, entry, tp):
-                    be_msg = f"BE — SL moved to entry {entry:.2f} (ticket={ticket}, ≥50% TP progress)"
-                    logger.info(be_msg)
-                    last_result[0] = be_msg
-
         # Phase 3 — agent
         tui.set_state("Querying agent...", f"Cycle {n}  ·  Step 3/4")
         market_text   = serialize_for_prompt(
@@ -199,6 +184,8 @@ def main():
 
     _stop_poll = threading.Event()
     _mt4_poll_ok = [True]
+    seen_tickets: dict[int, float] = {}      # ticket -> last observed pts_in_profit
+    auto_closed_tickets: set[int] = set()    # suppress VANISHED log for tickets we auto-closed
 
     def _poll_mt4():
         while not _stop_poll.wait(5.0):
@@ -211,33 +198,52 @@ def main():
                     _mt4_poll_ok[0] = True
                     logger.info("MT4 reconnected")
 
-                # Auto-close monitor — runs every 5 s when positions are open
+                current_tickets = {p["ticket"] for p in positions}
+
+                # Detect externally-closed tickets (broker SL/TP, manual, agent CLOSE)
+                for ticket in list(seen_tickets.keys()):
+                    if ticket in current_tickets:
+                        continue
+                    last_pts = seen_tickets.pop(ticket)
+                    if ticket in auto_closed_tickets:
+                        auto_closed_tickets.discard(ticket)
+                        continue
+                    vanish_msg = (
+                        f"POSITION_VANISHED ticket={ticket} — last seen {last_pts:+.2f} pts "
+                        f"(closed externally: SL/TP/broker/manual)"
+                    )
+                    logger.info(vanish_msg)
+                    last_result[0] = vanish_msg
+
+                # Auto-close monitor + seen_tickets bookkeeping
                 auto_close_pts = getattr(config, "AUTO_CLOSE_PROFIT_PTS", 0.0)
-                if auto_close_pts > 0 and positions:
-                    for pos in positions:
-                        symbol = pos["symbol"]
-                        open_price = pos["open"]
-                        pos_type = pos["type"]
+                for pos in positions:
+                    symbol = pos["symbol"]
+                    open_price = pos["open"]
+                    pos_type = pos["type"]
+                    ticket = pos["ticket"]
+                    try:
+                        tick = mt4.get_price(symbol)
+                    except Exception:
+                        continue
+                    if pos_type == "BUY":
+                        pts_in_profit = tick["bid"] - open_price
+                    else:
+                        pts_in_profit = open_price - tick["ask"]
+                    seen_tickets[ticket] = pts_in_profit
+
+                    if auto_close_pts > 0 and pts_in_profit >= auto_close_pts:
                         try:
-                            tick = mt4.get_price(symbol)
-                        except Exception:
-                            continue
-                        if pos_type == "BUY":
-                            pts_in_profit = tick["bid"] - open_price
-                        else:
-                            pts_in_profit = open_price - tick["ask"]
-                        if pts_in_profit >= auto_close_pts:
-                            ticket = pos["ticket"]
-                            try:
-                                mt4.close(ticket)
-                                ac_msg = (
-                                    f"AUTO_CLOSE ticket={ticket} — {pts_in_profit:.2f} pts "
-                                    f"(threshold {auto_close_pts} pts)"
-                                )
-                            except Exception as exc:
-                                ac_msg = f"AUTO_CLOSE FAILED ticket={ticket}: {exc}"
-                            logger.info(ac_msg)
-                            last_result[0] = ac_msg
+                            mt4.close(ticket)
+                            ac_msg = (
+                                f"AUTO_CLOSE ticket={ticket} — {pts_in_profit:.2f} pts "
+                                f"(threshold {auto_close_pts} pts)"
+                            )
+                            auto_closed_tickets.add(ticket)
+                        except Exception as exc:
+                            ac_msg = f"AUTO_CLOSE FAILED ticket={ticket}: {exc}"
+                        logger.info(ac_msg)
+                        last_result[0] = ac_msg
             except MT4ConnectionError:
                 if _mt4_poll_ok[0]:
                     _mt4_poll_ok[0] = False

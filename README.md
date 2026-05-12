@@ -44,8 +44,8 @@ MT4_HOST     = "127.0.0.1"
 MT4_PORT     = 5555        # must match AURUM_Bridge.mq4
 MAGIC_NUMBER = 20240101    # identifies bot orders in MT4
 
-MAX_RISK_PCT    = 4        # % of balance risked per trade
 MAX_OPEN_TRADES = 1        # max simultaneous positions
+# Lot sizing: 0.01 lots per 100€ of balance (floor). Set FIXED_LOTS > 0 to override.
 ```
 
 ### 4. Set up the MT4 Expert Advisor

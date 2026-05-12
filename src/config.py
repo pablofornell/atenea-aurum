@@ -16,10 +16,10 @@ MT4_PORT       = 5555
 MAGIC_NUMBER   = 20240101
 
 # Risk — NEVER delegated to the agent
-MAX_RISK_PCT          = 2    # % of balance per trade
+# Lot sizing rule: 0.01 lots per 100€ of balance (floor). Override with FIXED_LOTS > 0.
 MAX_OPEN_TRADES       = 1    # max simultaneous positions
 AUTO_CLOSE_PROFIT_PTS = 10.0  # close automatically when price moves N points in profit (0 = disabled)
-FIXED_LOTS            = 0.0  # if > 0, always use this lot size (overrides risk-based sizing)
+FIXED_LOTS            = 0.0  # if > 0, always use this lot size (overrides capital-tier sizing)
 
 # Cycle
 CYCLE_SECONDS  = 60     # seconds between cycles (fallback only)
