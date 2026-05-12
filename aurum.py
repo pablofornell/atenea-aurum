@@ -212,25 +212,32 @@ def main():
                     logger.info("MT4 reconnected")
 
                 # Auto-close monitor — runs every 5 s when positions are open
-                auto_close_pct = getattr(config, "AUTO_CLOSE_PROFIT_PCT", 0.0)
-                if auto_close_pct > 0 and positions:
-                    balance = account.get("balance", 0)
-                    if balance > 0:
-                        for pos in positions:
-                            profit = pos["profit"]
-                            if profit >= balance * (auto_close_pct / 100.0):
-                                ticket = pos["ticket"]
-                                try:
-                                    mt4.close(ticket)
-                                    ac_msg = (
-                                        f"AUTO_CLOSE ticket={ticket} — profit {profit:.2f} "
-                                        f"({profit / balance * 100:.1f}% of balance, "
-                                        f"threshold {auto_close_pct}%)"
-                                    )
-                                except Exception as exc:
-                                    ac_msg = f"AUTO_CLOSE FAILED ticket={ticket}: {exc}"
-                                logger.info(ac_msg)
-                                last_result[0] = ac_msg
+                auto_close_pts = getattr(config, "AUTO_CLOSE_PROFIT_PTS", 0.0)
+                if auto_close_pts > 0 and positions:
+                    for pos in positions:
+                        symbol = pos["symbol"]
+                        open_price = pos["open"]
+                        pos_type = pos["type"]
+                        try:
+                            tick = mt4.get_price(symbol)
+                        except Exception:
+                            continue
+                        if pos_type == "BUY":
+                            pts_in_profit = tick["bid"] - open_price
+                        else:
+                            pts_in_profit = open_price - tick["ask"]
+                        if pts_in_profit >= auto_close_pts:
+                            ticket = pos["ticket"]
+                            try:
+                                mt4.close(ticket)
+                                ac_msg = (
+                                    f"AUTO_CLOSE ticket={ticket} — {pts_in_profit:.2f} pts "
+                                    f"(threshold {auto_close_pts} pts)"
+                                )
+                            except Exception as exc:
+                                ac_msg = f"AUTO_CLOSE FAILED ticket={ticket}: {exc}"
+                            logger.info(ac_msg)
+                            last_result[0] = ac_msg
             except MT4ConnectionError:
                 if _mt4_poll_ok[0]:
                     _mt4_poll_ok[0] = False
