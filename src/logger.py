@@ -25,6 +25,7 @@ class AurumLogger:
         ts = _session_ts()
         self._log_path       = os.path.join(self.LOG_DIR, f"aurum_session_{ts}.log")
         self._decisions_path = os.path.join(self.LOG_DIR, f"aurum_decisions_{ts}.jsonl")
+        self._trades_path    = os.path.join(self.LOG_DIR, f"aurum_trades_{ts}.jsonl")
         self._cycle_start: float = 0.0
 
         fmt     = logging.Formatter("[%(asctime)s] %(message)s", datefmt="%H:%M:%S")
@@ -142,4 +143,11 @@ class AurumLogger:
             "result":   result,
         }
         with open(self._decisions_path, "a", buffering=1, encoding="utf-8") as f:
+            f.write(json.dumps(record) + "\n")
+
+    def log_trade_event(self, event: str, **fields) -> None:
+        """Write a structured trade lifecycle event to trades.jsonl.
+        Events: trade_opened, trade_closed, post_close_sample."""
+        record = {"ts": datetime.now(timezone.utc).isoformat(), "event": event, **fields}
+        with open(self._trades_path, "a", buffering=1, encoding="utf-8") as f:
             f.write(json.dumps(record) + "\n")

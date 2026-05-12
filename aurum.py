@@ -2,6 +2,7 @@ import importlib
 import os
 import sys
 import threading
+import time
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
@@ -184,11 +185,17 @@ def main():
 
     _stop_poll = threading.Event()
     _mt4_poll_ok = [True]
-    seen_tickets: dict[int, float] = {}      # ticket -> last observed pts_in_profit
+    # Open-position state: ticket -> dict with mfe/mae/first_seen_ts/open_price/sl/tp/side/lots/symbol/last_pts
+    seen_tickets: dict[int, dict] = {}
     auto_closed_tickets: set[int] = set()    # suppress VANISHED log for tickets we auto-closed
+    # Post-close trajectory watch: keep tracking price relative to entry for N min after close
+    post_close_watch: dict[int, dict] = {}
+    POST_CLOSE_WINDOW_S = 1800   # 30 min
+    POST_CLOSE_SAMPLE_S = 60     # sample every 60s
 
     def _poll_mt4():
         while not _stop_poll.wait(5.0):
+            now = time.monotonic()
             try:
                 positions = mt4.get_positions()
                 account   = mt4.get_account()
@@ -200,28 +207,76 @@ def main():
 
                 current_tickets = {p["ticket"] for p in positions}
 
-                # Detect externally-closed tickets (broker SL/TP, manual, agent CLOSE)
+                # ── 1) Detect closed tickets (auto-close OR external) ──────────
                 for ticket in list(seen_tickets.keys()):
                     if ticket in current_tickets:
                         continue
-                    last_pts = seen_tickets.pop(ticket)
-                    if ticket in auto_closed_tickets:
-                        auto_closed_tickets.discard(ticket)
-                        continue
-                    vanish_msg = (
-                        f"POSITION_VANISHED ticket={ticket} — last seen {last_pts:+.2f} pts "
-                        f"(closed externally: SL/TP/broker/manual)"
-                    )
-                    logger.info(vanish_msg)
-                    last_result[0] = vanish_msg
+                    state = seen_tickets.pop(ticket)
+                    was_auto = ticket in auto_closed_tickets
+                    auto_closed_tickets.discard(ticket)
+                    close_reason = "auto_close" if was_auto else "external"
+                    duration_s = now - state["first_seen_ts"]
 
-                # Auto-close monitor + seen_tickets bookkeeping
+                    # Capture an approximate close price from current tick (post-close)
+                    try:
+                        tick = mt4.get_price(state["symbol"])
+                        close_price = tick["bid"] if state["side"] == "BUY" else tick["ask"]
+                    except Exception:
+                        close_price = state["open_price"]
+
+                    if not was_auto:
+                        vanish_msg = (
+                            f"POSITION_VANISHED ticket={ticket} — last seen {state['last_pts']:+.2f} pts "
+                            f"(closed externally: SL/TP/broker/manual)"
+                        )
+                        logger.info(vanish_msg)
+                        last_result[0] = vanish_msg
+
+                    summary = (
+                        f"TRADE_CLOSED ticket={ticket} side={state['side']} "
+                        f"entry={state['open_price']:.2f} lots={state['lots']:.2f} "
+                        f"mfe={state['mfe_pts']:+.2f}pts mae={state['mae_pts']:+.2f}pts "
+                        f"duration={duration_s:.0f}s reason={close_reason}"
+                    )
+                    logger.info(summary)
+
+                    logger.log_trade_event(
+                        "trade_closed",
+                        ticket=ticket,
+                        side=state["side"],
+                        open_price=state["open_price"],
+                        sl=state["sl"],
+                        tp=state["tp"],
+                        lots=state["lots"],
+                        symbol=state["symbol"],
+                        close_price=close_price,
+                        last_pts=state["last_pts"],
+                        mfe_pts=state["mfe_pts"],
+                        mae_pts=state["mae_pts"],
+                        duration_s=duration_s,
+                        close_reason=close_reason,
+                    )
+
+                    # Start post-close watch (30 min trajectory tracking)
+                    post_close_watch[ticket] = {
+                        "open_price":   state["open_price"],
+                        "side":         state["side"],
+                        "sl":           state["sl"],
+                        "tp":           state["tp"],
+                        "lots":         state["lots"],
+                        "symbol":       state["symbol"],
+                        "close_ts":     now,
+                        "close_reason": close_reason,
+                        "next_sample_at": now,   # first sample immediately
+                    }
+
+                # ── 2) Update / open: process current positions ─────────────────
                 auto_close_pts = getattr(config, "AUTO_CLOSE_PROFIT_PTS", 0.0)
                 for pos in positions:
-                    symbol = pos["symbol"]
+                    symbol     = pos["symbol"]
                     open_price = pos["open"]
-                    pos_type = pos["type"]
-                    ticket = pos["ticket"]
+                    pos_type   = pos["type"]
+                    ticket     = pos["ticket"]
                     try:
                         tick = mt4.get_price(symbol)
                     except Exception:
@@ -230,7 +285,40 @@ def main():
                         pts_in_profit = tick["bid"] - open_price
                     else:
                         pts_in_profit = open_price - tick["ask"]
-                    seen_tickets[ticket] = pts_in_profit
+
+                    if ticket not in seen_tickets:
+                        # First sighting — initialize and emit trade_opened event
+                        seen_tickets[ticket] = {
+                            "mfe_pts":       pts_in_profit,
+                            "mae_pts":       pts_in_profit,
+                            "last_pts":      pts_in_profit,
+                            "first_seen_ts": now,
+                            "open_price":    open_price,
+                            "sl":            pos.get("sl", 0.0),
+                            "tp":            pos.get("tp", 0.0),
+                            "side":          pos_type,
+                            "lots":          pos.get("lots", 0.0),
+                            "symbol":        symbol,
+                        }
+                        logger.log_trade_event(
+                            "trade_opened",
+                            ticket=ticket,
+                            side=pos_type,
+                            open_price=open_price,
+                            sl=pos.get("sl", 0.0),
+                            tp=pos.get("tp", 0.0),
+                            lots=pos.get("lots", 0.0),
+                            symbol=symbol,
+                            bid=tick["bid"],
+                            ask=tick["ask"],
+                        )
+                    else:
+                        s = seen_tickets[ticket]
+                        s["last_pts"] = pts_in_profit
+                        if pts_in_profit > s["mfe_pts"]:
+                            s["mfe_pts"] = pts_in_profit
+                        if pts_in_profit < s["mae_pts"]:
+                            s["mae_pts"] = pts_in_profit
 
                     if auto_close_pts > 0 and pts_in_profit >= auto_close_pts:
                         try:
@@ -244,6 +332,44 @@ def main():
                             ac_msg = f"AUTO_CLOSE FAILED ticket={ticket}: {exc}"
                         logger.info(ac_msg)
                         last_result[0] = ac_msg
+
+                # ── 3) Post-close trajectory watch ──────────────────────────────
+                for ticket in list(post_close_watch.keys()):
+                    w = post_close_watch[ticket]
+                    age = now - w["close_ts"]
+                    if age >= POST_CLOSE_WINDOW_S:
+                        del post_close_watch[ticket]
+                        continue
+                    if now < w["next_sample_at"]:
+                        continue
+                    try:
+                        tick = mt4.get_price(w["symbol"])
+                    except Exception:
+                        continue
+                    if w["side"] == "BUY":
+                        pts_from_entry = tick["bid"] - w["open_price"]
+                    else:
+                        pts_from_entry = w["open_price"] - tick["ask"]
+                    sl_hit_now = (
+                        (w["sl"] > 0 and tick["ask"] >= w["sl"]) if w["side"] == "SELL"
+                        else (w["sl"] > 0 and tick["bid"] <= w["sl"])
+                    )
+                    tp_hit_now = (
+                        (w["tp"] > 0 and tick["ask"] <= w["tp"]) if w["side"] == "SELL"
+                        else (w["tp"] > 0 and tick["bid"] >= w["tp"])
+                    )
+                    logger.log_trade_event(
+                        "post_close_sample",
+                        ticket=ticket,
+                        close_reason=w["close_reason"],
+                        t_after_close_s=age,
+                        pts_from_entry=pts_from_entry,
+                        bid=tick["bid"],
+                        ask=tick["ask"],
+                        sl_would_hit=sl_hit_now,
+                        tp_would_hit=tp_hit_now,
+                    )
+                    w["next_sample_at"] = now + POST_CLOSE_SAMPLE_S
             except MT4ConnectionError:
                 if _mt4_poll_ok[0]:
                     _mt4_poll_ok[0] = False
