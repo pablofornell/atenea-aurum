@@ -124,7 +124,7 @@ def main():
 
         # Phase 4 — execution
         tui.set_state("Executing...", f"Cycle {n}  ·  Step 4/4")
-        result = execute(decision, context, mt4, config)
+        result = execute(decision, context, mt4, config, agent_closed_tickets)
         last_result[0] = result
         last_decision[0] = decision
 
@@ -187,7 +187,8 @@ def main():
     _mt4_poll_ok = [True]
     # Open-position state: ticket -> dict with mfe/mae/first_seen_ts/open_price/sl/tp/side/lots/symbol/last_pts
     seen_tickets: dict[int, dict] = {}
-    auto_closed_tickets: set[int] = set()    # suppress VANISHED log for tickets we auto-closed
+    auto_closed_tickets: set[int] = set()    # closed by AUTO_CLOSE loop (5s poll)
+    agent_closed_tickets: set[int] = set()   # closed by agent CLOSE decision (via executor)
     # Post-close trajectory watch: keep tracking price relative to entry for N min after close
     post_close_watch: dict[int, dict] = {}
     POST_CLOSE_WINDOW_S = 1800   # 30 min
@@ -212,9 +213,16 @@ def main():
                     if ticket in current_tickets:
                         continue
                     state = seen_tickets.pop(ticket)
-                    was_auto = ticket in auto_closed_tickets
+                    was_auto  = ticket in auto_closed_tickets
+                    was_agent = ticket in agent_closed_tickets
                     auto_closed_tickets.discard(ticket)
-                    close_reason = "auto_close" if was_auto else "external"
+                    agent_closed_tickets.discard(ticket)
+                    if was_auto:
+                        close_reason = "auto_close"
+                    elif was_agent:
+                        close_reason = "agent"
+                    else:
+                        close_reason = "external"
                     duration_s = now - state["first_seen_ts"]
 
                     # Capture an approximate close price from current tick (post-close)
@@ -224,7 +232,7 @@ def main():
                     except Exception:
                         close_price = state["open_price"]
 
-                    if not was_auto:
+                    if not was_auto and not was_agent:
                         vanish_msg = (
                             f"POSITION_VANISHED ticket={ticket} — last seen {state['last_pts']:+.2f} pts "
                             f"(closed externally: SL/TP/broker/manual)"

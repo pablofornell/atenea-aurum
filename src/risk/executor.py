@@ -111,7 +111,10 @@ def _attempt_order(
     return None, lots, "ERROR: max retries exceeded"
 
 
-def execute(decision: dict, context: dict, mt4: MT4Client, cfg) -> str:
+def execute(
+    decision: dict, context: dict, mt4: MT4Client, cfg,
+    agent_closed_tickets: set[int] | None = None,
+) -> str:
     action = decision.get("decision", "WAIT").upper()
     acc    = context["account"]
     pos    = context["positions"]
@@ -123,12 +126,17 @@ def execute(decision: dict, context: dict, mt4: MT4Client, cfg) -> str:
     if action == "CLOSE":
         ticket = decision.get("ticket_to_close")
         if ticket:
-            ok = mt4.close(int(ticket))
+            ticket_int = int(ticket)
+            ok = mt4.close(ticket_int)
+            if ok and agent_closed_tickets is not None:
+                agent_closed_tickets.add(ticket_int)
             return f"CLOSE ticket={ticket} ok={ok}"
         closed = []
         for p in pos:
             if mt4.close(p["ticket"]):
                 closed.append(str(p["ticket"]))
+                if agent_closed_tickets is not None:
+                    agent_closed_tickets.add(p["ticket"])
         return f"CLOSE all: {', '.join(closed) or 'none'}"
 
     if action not in ("BUY", "SELL"):

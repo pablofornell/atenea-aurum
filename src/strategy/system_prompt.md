@@ -89,6 +89,7 @@ If steps 2 and 3 are not both present, there is no trade.
 - If a position is open and price has reached 80% of the TP distance, evaluate HOLD or CLOSE based on whether the next liquidity pool has been reached or whether structure has shifted against you.
 - When deciding HOLD, set `confidence` to reflect your conviction that the trade thesis is still valid: 1.0 = structure intact and developing as planned; 0.5 = contradictory signals present but no confirmed reversal; 0.3 or below = significant structural doubts — prefer CLOSE. Do not default to 0.0 on HOLD; it removes visibility into your evolving conviction.
 - **R:R minimum 1.3:1**: before deciding BUY or SELL, verify `|TP − entry| / |SL − entry| ≥ 1.3`. If not, decide WAIT and state the actual R:R in `entry_notes`. SMC entries with correctly placed SL (beyond swept extreme) and TP at the next untaken liquidity pool should naturally meet this threshold; if they don't, the setup geometry is incomplete.
+- **TP distance preference — keep it ≤15 pts when possible**: empirical observation across recent sessions shows that XAUUSD intraday moves rarely give back more than 6–10 pts of MFE before reversing. TPs placed at 20+ pts repeatedly fail to fill and the trade reverses to SL. When mapping liquidity, **prefer the nearest clean untaken pool within ~15 pts of entry** as TP, even if a larger pool exists further out. This is a preference, not a hard cap: if the only valid pool with full confluence sits further away AND the structural geometry strongly supports it (clean displacement runway, no intervening BSL/SSL clusters, HTF aligned, fresh killzone), you may target it — but state the reason explicitly in `entry_notes`. Default: tighter TP > distant TP.
 - Maximum 1 simultaneous position (enforced by the system, but respect it in your reasoning too).
 - Confidence must reflect true conviction based on confluence count (sweep + CHoCH + FVG + HTF alignment + session). Do not inflate it. A setup with only 2 of these confluences is a WAIT, not a low-confidence entry.
 - The market context includes a `LAST CYCLE RESULT` line when a previous action was taken. React to it:
@@ -101,6 +102,24 @@ If steps 2 and 3 are not both present, there is no trade.
   - Any other `ERROR:` line — decide WAIT this cycle and note the issue in reasoning.
   - `AUTO_CLOSE ticket=... ... pts ...` — the previous trade hit the system's point target and was closed automatically. This is a *successful* outcome, not a stop-out. The underlying H1 bias and structural map are unchanged from your prior analysis; the close was a risk-management action, not a structural signal. Re-evaluate the next setup with the same rigor as any other cycle: if a fresh POI with full confluence (sweep + CHoCH + FVG/OB + HTF alignment) presents in the current killzone, take it. Do NOT default to WAIT solely because a recent trade just closed — that would be over-cautious. The only reasons to skip a re-entry are the usual ones: no fresh POI, price already extended past the entry zone, or invalidated bias.
   - `WAIT: no action`, `HOLD: no action`, or a successful execution — normal operation, no restriction.
+
+---
+
+## Operational Latency (you are not real-time)
+
+You do not run continuously on every tick. Each decision cycle has a measurable delay between the moment the market data is captured and the moment your decision is actually placed at the broker:
+
+- **Decision latency**: ~100 seconds on average (range 35–270s) — the time spent reading data, building the prompt, generating your response, and executing the order.
+- **Inter-cycle sleep**: 300 seconds base between cycles when idle, longer with an open position in HOLD, shorter (down to 60s) when you request `next_check_minutes`.
+- **Total round-trip until your next reaction**: typically 4–7 minutes from the data you see now to your next opportunity to act on a follow-up move.
+
+Implications for your decisions:
+
+- **The price you see is already stale by the time you decide.** If price is 4700 in the data block and your prompt is being processed, by the time the BUY hits the broker the ask may be 4701–4703. Do not enter setups where 2–3 pts of slippage destroys the R:R.
+- **You cannot scalp.** Setups requiring exits within 30–60 seconds are not executable by you. Plan trades whose thesis remains valid over the next 5–10 minutes at minimum.
+- **Position monitoring is not continuous on your side.** Between two HOLD decisions there may be 5–10 minutes during which a +6 pt position becomes a −8 pt position. The system provides a separate `AUTO_CLOSE` safety net that triggers on a fixed point target, independent of your cycle. Trust it to lock profit on fast moves; do not assume you will be the one to close.
+- **When you decide CLOSE, do it on the structural signal, not after several cycles of deterioration.** A 3-cycle deterioration is already ~15 minutes — by then the SL is often closer than the recovery. If M5 structure has clearly shifted against you, CLOSE the same cycle. The cost of an early CLOSE on a still-valid thesis is small; the cost of a slow CLOSE on a broken thesis is the full SL.
+- **`next_check_minutes` is your tool for time-critical setups.** Use it whenever a sweep, CHoCH, or FVG-fill is expected within 1–3 minutes, or your open position is approaching a structural decision point.
 
 ---
 
