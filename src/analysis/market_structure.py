@@ -368,3 +368,71 @@ def detect_sweeps(
                 break  # one sweep per pool
 
     return sweeps, swept_ids
+
+
+# ── FVGs ──────────────────────────────────────────────────────────────────────
+
+def detect_fvgs(tf: str, candles: list[Candle]) -> list[FVG]:
+    """
+    Three-candle FVG pattern:
+      Bullish: candles[i-2].high < candles[i].low  → gap above candle[i-2]
+      Bearish: candles[i-2].low  > candles[i].high → gap below candle[i-2]
+    origin_time = timestamp of the middle (imbalance) candle.
+    mitigation_pct tracks how far price has retraced into the gap after formation.
+    """
+    fvgs: list[FVG] = []
+    n = len(candles)
+
+    for i in range(2, n):
+        c0, c1, c2 = candles[i - 2], candles[i - 1], candles[i]
+        fvg: FVG | None = None
+
+        if c0["high"] < c2["low"]:
+            fvg = {
+                "id": f"{tf}_FVG_bull_{i}",
+                "direction": "bullish",
+                "top": c2["low"],
+                "bottom": c0["high"],
+                "midpoint": round((c2["low"] + c0["high"]) / 2, 2),
+                "origin_time": c1["time"],
+                "status": "intact",
+                "mitigation_pct": 0.0,
+            }
+        elif c0["low"] > c2["high"]:
+            fvg = {
+                "id": f"{tf}_FVG_bear_{i}",
+                "direction": "bearish",
+                "top": c0["low"],
+                "bottom": c2["high"],
+                "midpoint": round((c0["low"] + c2["high"]) / 2, 2),
+                "origin_time": c1["time"],
+                "status": "intact",
+                "mitigation_pct": 0.0,
+            }
+
+        if fvg is None:
+            continue
+
+        gap = fvg["top"] - fvg["bottom"]
+        if gap <= 0:
+            continue
+
+        subsequent = candles[i + 1:]
+        if fvg["direction"] == "bullish":
+            candidates = [c["low"] for c in subsequent if c["low"] < fvg["top"]]
+            min_low = min(candidates) if candidates else fvg["top"]
+            pct = round(min(100.0, max(0.0, (fvg["top"] - min_low) / gap * 100)), 1)
+        else:
+            candidates = [c["high"] for c in subsequent if c["high"] > fvg["bottom"]]
+            max_high = max(candidates) if candidates else fvg["bottom"]
+            pct = round(min(100.0, max(0.0, (max_high - fvg["bottom"]) / gap * 100)), 1)
+
+        fvg["mitigation_pct"] = pct
+        if pct >= 100:
+            fvg["status"] = "filled"
+        elif pct > 0:
+            fvg["status"] = "partial"
+
+        fvgs.append(fvg)
+
+    return fvgs

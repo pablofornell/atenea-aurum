@@ -3,7 +3,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import pytest
-from analysis.market_structure import compute_atr, detect_swing_points, detect_market_structure, detect_liquidity_pools, merge_pool_state, detect_sweeps
+from analysis.market_structure import (
+    compute_atr, detect_swing_points, detect_market_structure,
+    detect_liquidity_pools, merge_pool_state, detect_sweeps,
+    detect_fvgs,
+)
 
 # ── Shared candle factory ─────────────────────────────────────────────────────
 
@@ -255,3 +259,54 @@ def test_sweep_not_confirmed_when_close_stays_below():
     assert ssl_sweeps[0]["confirmed"] is False
     pool_id = next(p["id"] for p in pools["ssl"] if p["price"] == 100)
     assert pool_id not in swept_ids
+
+
+# ── FVG tests ─────────────────────────────────────────────────────────────────
+
+def test_fvg_bullish_intact():
+    fvgs = detect_fvgs("M15", FVG_BULL)
+    assert len(fvgs) == 1
+    f = fvgs[0]
+    assert f["direction"] == "bullish"
+    assert f["bottom"] == 105
+    assert f["top"] == 112
+    assert abs(f["midpoint"] - 108.5) < 0.01
+    assert f["status"] == "intact"
+    assert f["mitigation_pct"] == 0.0
+
+def test_fvg_bullish_partial():
+    # low=108 < top=112 but > bottom=105 → partial
+    fvgs = detect_fvgs("M15", FVG_BULL_PARTIAL)
+    f = next(f for f in fvgs if f["direction"] == "bullish")
+    assert f["status"] == "partial"
+    # pct = (112 - 108) / (112 - 105) * 100 = 4/7*100 ≈ 57.1
+    assert 55 < f["mitigation_pct"] < 60
+
+def test_fvg_bullish_filled():
+    # low=103 < bottom=105 → filled (100%)
+    fvgs = detect_fvgs("M15", FVG_BULL_FILLED)
+    f = next(f for f in fvgs if f["direction"] == "bullish")
+    assert f["status"] == "filled"
+    assert f["mitigation_pct"] == 100.0
+
+def test_fvg_bearish():
+    candles = [
+        {"time": "2024.01.01 00:00", "open": 130, "high": 132, "low": 120, "close": 121},  # [0] low=120
+        {"time": "2024.01.01 01:00", "open": 121, "high": 121, "low":  95, "close":  97},  # [1] displacement
+        {"time": "2024.01.01 02:00", "open":  97, "high": 110, "low":  94, "close":  96},  # [2] high=110 < 120
+    ]
+    fvgs = detect_fvgs("M15", candles)
+    f = next((f for f in fvgs if f["direction"] == "bearish"), None)
+    assert f is not None
+    assert f["top"] == 120
+    assert f["bottom"] == 110
+
+def test_no_fvg_when_gap_absent():
+    # Consecutive candles with no gap
+    candles = [
+        {"time": "2024.01.01 00:00", "open": 100, "high": 110, "low":  90, "close": 105},
+        {"time": "2024.01.01 01:00", "open": 105, "high": 115, "low": 100, "close": 108},
+        {"time": "2024.01.01 02:00", "open": 108, "high": 112, "low": 105, "close": 110},  # low=105 ≤ high of [0]=110 → no bullish FVG
+    ]
+    fvgs = detect_fvgs("M15", candles)
+    assert all(f["direction"] != "bullish" for f in fvgs)
