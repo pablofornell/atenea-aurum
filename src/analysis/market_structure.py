@@ -138,3 +138,106 @@ def detect_swing_points(
             })
 
     return highs, lows
+
+
+# ── Market Structure ──────────────────────────────────────────────────────────
+
+def _label_points(points: list[SwingPoint], is_high: bool) -> list[SwingPoint]:
+    """
+    Label swing highs as HH/LH, swing lows as HL/LL.
+    First point gets label=None. Each subsequent compared to its predecessor by price.
+    is_high=True for highs (price > prev → HH, else LH).
+    is_high=False for lows  (price > prev → HL, else LL).
+    """
+    labeled = []
+    for i, sp in enumerate(points):
+        if i == 0:
+            label = None
+        elif is_high:
+            label = "HH" if sp["price"] > points[i - 1]["price"] else "LH"
+        else:
+            label = "HL" if sp["price"] > points[i - 1]["price"] else "LL"
+        labeled.append({**sp, "label": label})
+    return labeled
+
+
+def _classify_state(highs: list[SwingPoint], lows: list[SwingPoint]) -> str:
+    if len(highs) < 2 or len(lows) < 2:
+        return "ranging"
+    last_h = highs[-1]["label"]
+    last_l = lows[-1]["label"]
+    if last_h == "HH" and last_l == "HL":
+        return "bullish"
+    if last_h == "LH" and last_l == "LL":
+        return "bearish"
+    return "ranging"
+
+
+def _detect_structure_breaks(
+    candles: list[Candle],
+    highs: list[SwingPoint],
+    lows: list[SwingPoint],
+    state: str,
+) -> tuple[StructureBreak | None, StructureBreak | None]:
+    """
+    Scan candles for closes that break the most recent swing high or low.
+    Uses closes (not wicks) per SMC convention.
+    Break of the last high when bullish → BOS; when bearish/ranging → CHoCH.
+    Break of the last low when bearish  → BOS; when bullish/ranging → CHoCH.
+    """
+    if not highs or not lows:
+        return None, None
+
+    last_high = highs[-1]
+    last_low = lows[-1]
+    last_bos: StructureBreak | None = None
+    last_choch: StructureBreak | None = None
+
+    for c in candles:
+        if c["time"] > last_high["time"] and c["close"] > last_high["price"]:
+            br: StructureBreak = {
+                "price": last_high["price"],
+                "time": c["time"],
+                "direction": "bullish",
+                "broken_swing_time": last_high["time"],
+            }
+            if state in ("bullish", "ranging"):
+                last_bos = br
+            else:
+                last_choch = br
+
+        if c["time"] > last_low["time"] and c["close"] < last_low["price"]:
+            br = {
+                "price": last_low["price"],
+                "time": c["time"],
+                "direction": "bearish",
+                "broken_swing_time": last_low["time"],
+            }
+            if state in ("bearish", "ranging"):
+                last_bos = br
+            else:
+                last_choch = br
+
+    return last_bos, last_choch
+
+
+def detect_market_structure(candles: list[Candle], n: int = 2) -> TimeframeStructure:
+    """Compute full market structure for a single timeframe."""
+    raw_highs, raw_lows = detect_swing_points(candles, n)
+    highs = _label_points(raw_highs, is_high=True)
+    lows = _label_points(raw_lows, is_high=False)
+    state = _classify_state(highs, lows)
+    last_bos, last_choch = _detect_structure_breaks(candles, highs, lows, state)
+
+    all_labeled = [(sp["time"], sp["label"]) for sp in highs + lows if sp["label"]]
+    all_labeled.sort(key=lambda x: x[0])
+    swing_sequence = [lbl for _, lbl in all_labeled[-8:]]
+
+    return {
+        "state": state,
+        "swing_sequence": swing_sequence,
+        "swing_highs": highs,
+        "swing_lows": lows,
+        "last_bos": last_bos,
+        "last_choch": last_choch,
+    }

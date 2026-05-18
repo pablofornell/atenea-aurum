@@ -3,7 +3,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import pytest
-from analysis.market_structure import compute_atr, detect_swing_points
+from analysis.market_structure import compute_atr, detect_swing_points, detect_market_structure
 
 # ── Shared candle factory ─────────────────────────────────────────────────────
 
@@ -112,3 +112,52 @@ def test_swing_points_all_equal():
     highs, lows = detect_swing_points(candles, n=1)
     assert highs == []
     assert lows == []
+
+
+# ── Market structure tests ────────────────────────────────────────────────────
+
+def test_market_structure_bullish():
+    s = detect_market_structure(BULLISH, n=1)
+    assert s["state"] == "bullish"
+    assert s["swing_highs"][-1]["label"] == "HH"
+    assert s["swing_lows"][-1]["label"] == "HL"
+    assert "HH" in s["swing_sequence"]
+    assert "HL" in s["swing_sequence"]
+
+def test_market_structure_bearish():
+    s = detect_market_structure(BEARISH, n=1)
+    assert s["state"] == "bearish"
+    assert s["swing_highs"][-1]["label"] == "LH"
+    assert s["swing_lows"][-1]["label"] == "LL"
+
+def test_market_structure_ranging_too_few_swings():
+    # Only 5 candles with N=1 → at most 1 swing of each type → can't label → ranging
+    candles = [
+        {"time": "2024.01.01 00:00", "open": 100, "high": 105, "low": 95, "close": 103},
+        {"time": "2024.01.01 01:00", "open": 103, "high": 106, "low": 90, "close": 92},
+        {"time": "2024.01.01 02:00", "open":  92, "high": 110, "low": 91, "close": 108},
+        {"time": "2024.01.01 03:00", "open": 108, "high": 115, "low": 107, "close": 112},
+        {"time": "2024.01.01 04:00", "open": 112, "high": 113, "low": 104, "close": 106},
+    ]
+    s = detect_market_structure(candles, n=1)
+    assert s["state"] == "ranging"
+
+def test_market_structure_no_bos_choch_without_break():
+    # BULLISH candles have no candle after the last SH that exceeds it
+    s = detect_market_structure(BULLISH, n=1)
+    assert s["last_bos"] is None
+    assert s["last_choch"] is None
+
+def test_market_structure_choch_bearish():
+    s = detect_market_structure(CHOCH, n=1)
+    assert s["last_choch"] is not None
+    assert s["last_choch"]["direction"] == "bearish"
+    assert s["last_choch"]["price"] == 100    # the broken swing low
+    assert s["last_bos"] is None
+
+def test_market_structure_bos_bullish():
+    s = detect_market_structure(BOS_BULL, n=1)
+    assert s["last_bos"] is not None
+    assert s["last_bos"]["direction"] == "bullish"
+    assert s["last_bos"]["price"] == 125     # the broken swing high
+    assert s["last_choch"] is None
