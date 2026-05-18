@@ -6,7 +6,7 @@ import pytest
 from analysis.market_structure import (
     compute_atr, detect_swing_points, detect_market_structure,
     detect_liquidity_pools, merge_pool_state, detect_sweeps,
-    detect_fvgs,
+    detect_fvgs, detect_order_blocks,
 )
 
 # ── Shared candle factory ─────────────────────────────────────────────────────
@@ -310,3 +310,63 @@ def test_no_fvg_when_gap_absent():
     ]
     fvgs = detect_fvgs("M15", candles)
     assert all(f["direction"] != "bullish" for f in fvgs)
+
+
+# ── Order block tests ─────────────────────────────────────────────────────────
+
+def test_order_block_bullish_ob_after_bearish_choch():
+    # CHoCH bearish (structure was bullish): last bullish candle before the break = bearish OB.
+    candles = [
+        {"time": "2024.01.01 00:00", "open": 100, "high": 105, "low":  95, "close": 103},
+        {"time": "2024.01.01 01:00", "open": 103, "high": 110, "low": 102, "close": 108},  # bullish
+        {"time": "2024.01.01 02:00", "open": 108, "high": 109, "low":  95, "close":  97},  # bearish ← last bearish before CHoCH bullish
+        {"time": "2024.01.01 03:00", "open":  97, "high": 130, "low":  96, "close": 128},  # displacement: CHoCH bullish
+        {"time": "2024.01.01 04:00", "open": 128, "high": 129, "low": 124, "close": 126},
+    ]
+    structure = {
+        "state": "bearish",
+        "swing_sequence": [],
+        "swing_highs": [],
+        "swing_lows": [],
+        "last_bos": None,
+        "last_choch": {
+            "price": 108.0,
+            "time": "2024.01.01 03:00",
+            "direction": "bullish",
+            "broken_swing_time": "2024.01.01 01:00",
+        },
+    }
+    obs = detect_order_blocks("H1", candles, structure)
+    assert len(obs) == 1
+    ob = obs[0]
+    assert ob["direction"] == "bullish"
+    assert ob["top"] == 108      # open of the last bearish candle (open=108 > close=97)
+    assert ob["bottom"] == 97    # close of the last bearish candle
+    assert ob["origin_time"] == "2024.01.01 02:00"
+    assert ob["displacement_time"] == "2024.01.01 03:00"
+    assert ob["status"] == "intact"
+
+def test_order_block_mitigated():
+    # Same setup but add a candle that trades back into the OB range
+    candles = [
+        {"time": "2024.01.01 00:00", "open": 100, "high": 105, "low":  95, "close": 103},
+        {"time": "2024.01.01 01:00", "open": 103, "high": 110, "low": 102, "close": 108},
+        {"time": "2024.01.01 02:00", "open": 108, "high": 109, "low":  95, "close":  97},  # OB: top=108, bottom=97
+        {"time": "2024.01.01 03:00", "open":  97, "high": 130, "low":  96, "close": 128},  # displacement
+        {"time": "2024.01.01 04:00", "open": 128, "high": 129, "low": 105, "close": 107},  # low=105 ≤ OB top=108 → mitigated
+    ]
+    structure = {
+        "state": "bearish",
+        "swing_sequence": [],
+        "swing_highs": [],
+        "swing_lows": [],
+        "last_bos": None,
+        "last_choch": {
+            "price": 108.0,
+            "time": "2024.01.01 03:00",
+            "direction": "bullish",
+            "broken_swing_time": "2024.01.01 01:00",
+        },
+    }
+    obs = detect_order_blocks("H1", candles, structure)
+    assert obs[0]["status"] == "mitigated"

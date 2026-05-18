@@ -436,3 +436,72 @@ def detect_fvgs(tf: str, candles: list[Candle]) -> list[FVG]:
         fvgs.append(fvg)
 
     return fvgs
+
+
+# ── Order Blocks ──────────────────────────────────────────────────────────────
+
+def _ob_status(
+    candles: list[Candle],
+    ob_top: float,
+    ob_bottom: float,
+    displacement_time: str,
+    direction: str,
+) -> str:
+    """Mitigated when price trades back into the OB body after the displacement."""
+    for c in candles:
+        if c["time"] <= displacement_time:
+            continue
+        if direction == "bullish" and c["low"] <= ob_top:
+            return "mitigated"
+        if direction == "bearish" and c["high"] >= ob_bottom:
+            return "mitigated"
+    return "intact"
+
+
+def detect_order_blocks(
+    tf: str,
+    candles: list[Candle],
+    structure: TimeframeStructure,
+) -> list[OrderBlock]:
+    """
+    Find order blocks: last candle of opposite color before a displacement
+    that created a BOS or CHoCH.
+    Bullish OB: last bearish candle (close < open) before a bullish break.
+    Bearish OB: last bullish candle (close > open) before a bearish structural break.
+    """
+    obs: list[OrderBlock] = []
+    breaks: list[StructureBreak] = [
+        b for b in [structure["last_bos"], structure["last_choch"]] if b is not None
+    ]
+
+    for br in breaks:
+        pre_break = [c for c in candles if c["time"] < br["time"]]
+        if not pre_break:
+            continue
+
+        if br["direction"] == "bullish":
+            ob_candle = next((c for c in reversed(pre_break) if c["close"] < c["open"]), None)
+            if ob_candle is None:
+                continue
+            top = ob_candle["open"]
+            bottom = ob_candle["close"]
+            direction = "bullish"
+        else:
+            ob_candle = next((c for c in reversed(pre_break) if c["close"] > c["open"]), None)
+            if ob_candle is None:
+                continue
+            top = ob_candle["close"]
+            bottom = ob_candle["open"]
+            direction = "bearish"
+
+        obs.append({
+            "id": _pool_id(tf, f"OB_{direction}", ob_candle["time"]),
+            "direction": direction,
+            "top": top,
+            "bottom": bottom,
+            "origin_time": ob_candle["time"],
+            "displacement_time": br["time"],
+            "status": _ob_status(candles, top, bottom, br["time"], direction),
+        })
+
+    return obs
