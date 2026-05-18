@@ -97,3 +97,44 @@ def compute_atr(candles: list[Candle], period: int = 14) -> float:
         h, l, pc = candles[i]["high"], candles[i]["low"], candles[i - 1]["close"]
         trs.append(max(h - l, abs(h - pc), abs(l - pc)))
     return round(sum(trs[-period:]) / period, 2)
+
+
+# ── Swing Points ───────────────────────────────────────────────────────────────
+
+def detect_swing_points(
+    candles: list[Candle], n: int = 2
+) -> tuple[list[SwingPoint], list[SwingPoint]]:
+    """
+    N-fractal swing detection (default N=2).
+    A candle at index i is a swing high if:
+        candles[i].high > candles[i±k].high  for all k in [1..n]
+    Symmetrically for swing lows using .low.
+    Returns (swing_highs, swing_lows) in chronological order (oldest first).
+    candle_index is distance from the END of the array (0 = most recent).
+    """
+    highs: list[SwingPoint] = []
+    lows: list[SwingPoint] = []
+    length = len(candles)
+
+    for i in range(n, length - n):
+        c = candles[i]
+        if all(c["high"] > candles[i - k]["high"] for k in range(1, n + 1)) and \
+           all(c["high"] > candles[i + k]["high"] for k in range(1, n + 1)):
+            highs.append({
+                "price": c["high"],
+                "time": c["time"],
+                "candle_index": length - 1 - i,
+                "label": None,
+                "swept": False,
+            })
+        if all(c["low"] < candles[i - k]["low"] for k in range(1, n + 1)) and \
+           all(c["low"] < candles[i + k]["low"] for k in range(1, n + 1)):
+            lows.append({
+                "price": c["low"],
+                "time": c["time"],
+                "candle_index": length - 1 - i,
+                "label": None,
+                "swept": False,
+            })
+
+    return highs, lows

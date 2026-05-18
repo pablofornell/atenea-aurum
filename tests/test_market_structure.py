@@ -3,7 +3,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import pytest
-from analysis.market_structure import compute_atr
+from analysis.market_structure import compute_atr, detect_swing_points
 
 # ── Shared candle factory ─────────────────────────────────────────────────────
 
@@ -83,3 +83,32 @@ def test_compute_atr_basic():
 def test_compute_atr_too_few_candles():
     candles = [C(f"2024.01.01 {i:02d}:00", 100, 101, 99, 100) for i in range(5)]
     assert compute_atr(candles, period=14) == 0.0
+
+# ── Swing point tests ─────────────────────────────────────────────────────────
+
+def test_swing_points_bullish():
+    highs, lows = detect_swing_points(BULLISH, n=1)
+    assert [h["price"] for h in highs] == [115, 125]
+    assert [l["price"] for l in lows] == [90, 100]
+    # candle_index counts from end: SH at idx3 → index from end = 8-3=5
+    assert highs[0]["candle_index"] == 5
+    assert highs[1]["candle_index"] == 1
+
+def test_swing_points_bearish():
+    highs, lows = detect_swing_points(BEARISH, n=1)
+    assert [h["price"] for h in highs] == [115, 110]
+    assert [l["price"] for l in lows] == [85, 75]
+
+def test_swing_points_too_few():
+    # Fewer than 2*n+1 candles → no swing points possible
+    candles = [{"time": f"2024.01.01 0{i}:00", "open": 100, "high": 101, "low": 99, "close": 100} for i in range(2)]
+    highs, lows = detect_swing_points(candles, n=1)
+    assert highs == []
+    assert lows == []
+
+def test_swing_points_all_equal():
+    # All same price → no swing points (not strictly greater/less)
+    candles = [{"time": f"2024.01.01 0{i}:00", "open": 100, "high": 100, "low": 100, "close": 100} for i in range(5)]
+    highs, lows = detect_swing_points(candles, n=1)
+    assert highs == []
+    assert lows == []
