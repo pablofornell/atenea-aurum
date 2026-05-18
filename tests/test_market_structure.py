@@ -7,6 +7,7 @@ from analysis.market_structure import (
     compute_atr, detect_swing_points, detect_market_structure,
     detect_liquidity_pools, merge_pool_state, detect_sweeps,
     detect_fvgs, detect_order_blocks,
+    detect_dealing_range, compute_asia_range,
 )
 
 # ── Shared candle factory ─────────────────────────────────────────────────────
@@ -370,3 +371,51 @@ def test_order_block_mitigated():
     }
     obs = detect_order_blocks("H1", candles, structure)
     assert obs[0]["status"] == "mitigated"
+
+
+# ── Dealing range tests ───────────────────────────────────────────────────────
+
+def test_dealing_range_discount():
+    s = detect_market_structure(BULLISH, n=1)
+    # Range: SL=90 to SH=125, eq=(90+125)/2=107.5
+    # band = (125-90)*0.05 = 1.75
+    # current_price=95 < 107.5 - 1.75 = 105.75 → discount
+    dr = detect_dealing_range("H1", BULLISH, s["swing_highs"], s["swing_lows"],
+                               current_price=95, equil_band_pct=0.05)
+    assert dr["high"] == 125
+    assert dr["low"] == 90
+    assert abs(dr["equilibrium"] - 107.5) < 0.01
+    assert dr["current_zone"] == "discount"
+
+def test_dealing_range_premium():
+    s = detect_market_structure(BULLISH, n=1)
+    # price=120 > 107.5 + 1.75 = 109.25 → premium
+    dr = detect_dealing_range("H1", BULLISH, s["swing_highs"], s["swing_lows"],
+                               current_price=120, equil_band_pct=0.05)
+    assert dr["current_zone"] == "premium"
+
+def test_dealing_range_equilibrium():
+    s = detect_market_structure(BULLISH, n=1)
+    # price=107 ≈ equilibrium (107.5 ± 1.75) → between 105.75 and 109.25
+    dr = detect_dealing_range("H1", BULLISH, s["swing_highs"], s["swing_lows"],
+                               current_price=107, equil_band_pct=0.05)
+    assert dr["current_zone"] == "equilibrium"
+
+def test_compute_asia_range():
+    candles = [
+        {"time": "2024.01.15 00:00", "open": 100, "high": 105, "low":  98, "close": 103},  # today Asia (hour=0 < 7)
+        {"time": "2024.01.15 03:00", "open": 103, "high": 108, "low": 102, "close": 106},  # today Asia (hour=3 < 7)
+        {"time": "2024.01.15 06:00", "open": 106, "high": 110, "low": 104, "close": 108},  # today Asia (hour=6 < 7)
+        {"time": "2024.01.15 08:00", "open": 108, "high": 115, "low": 107, "close": 112},  # today London (hour=8 >= 7)
+        {"time": "2024.01.15 12:00", "open": 112, "high": 118, "low": 110, "close": 115},  # today NY
+    ]
+    asia = compute_asia_range(candles)
+    assert asia["asia_high"] == 110
+    assert asia["asia_low"] == 98
+
+def test_compute_asia_range_no_candles():
+    # All candles in London/NY → no Asia range
+    candles = [{"time": "2024.01.15 08:00", "open": 100, "high": 105, "low": 98, "close": 103}]
+    asia = compute_asia_range(candles)
+    assert asia["asia_high"] is None
+    assert asia["asia_low"] is None

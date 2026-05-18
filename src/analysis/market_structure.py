@@ -505,3 +505,69 @@ def detect_order_blocks(
         })
 
     return obs
+
+
+# ── Dealing Range ─────────────────────────────────────────────────────────────
+
+def detect_dealing_range(
+    tf: str,
+    candles: list[Candle],
+    swing_highs: list[SwingPoint],
+    swing_lows: list[SwingPoint],
+    current_price: float,
+    equil_band_pct: float = 0.05,
+) -> DealingRange:
+    """
+    Dealing range = span between the highest swing high and lowest swing low
+    in the current candle window. equil_band_pct: fraction of range size on
+    each side of equilibrium that classifies as the 'equilibrium' zone.
+    """
+    if swing_highs and swing_lows:
+        top = max(swing_highs, key=lambda s: s["price"])
+        bot = min(swing_lows,  key=lambda s: s["price"])
+        h, h_time = top["price"], top["time"]
+        l, l_time = bot["price"], bot["time"]
+    else:
+        h = max(c["high"] for c in candles)
+        l = min(c["low"]  for c in candles)
+        h_time = next(c["time"] for c in candles if c["high"] == h)
+        l_time = next(c["time"] for c in candles if c["low"]  == l)
+
+    eq = round((h + l) / 2, 2)
+    band = (h - l) * equil_band_pct
+
+    if current_price > eq + band:
+        zone = "premium"
+    elif current_price < eq - band:
+        zone = "discount"
+    else:
+        zone = "equilibrium"
+
+    return {
+        "tf": tf,
+        "high": h, "high_time": h_time,
+        "low": l,  "low_time": l_time,
+        "equilibrium": eq,
+        "current_price": current_price,
+        "current_zone": zone,
+    }
+
+
+# ── Asia Session Range ────────────────────────────────────────────────────────
+
+def compute_asia_range(candles_h1: list[Candle]) -> dict[str, float | None]:
+    """Extract Asian session range (00:00-06:00 UTC) from today's H1 candles."""
+    if not candles_h1:
+        return {"asia_high": None, "asia_low": None}
+    today = candles_h1[-1]["time"].split(" ")[0]
+    asia = [
+        c for c in candles_h1
+        if c["time"].startswith(today)
+        and int(c["time"].split(" ")[1].split(":")[0]) < 7
+    ]
+    if not asia:
+        return {"asia_high": None, "asia_low": None}
+    return {
+        "asia_high": max(c["high"] for c in asia),
+        "asia_low":  min(c["low"]  for c in asia),
+    }
