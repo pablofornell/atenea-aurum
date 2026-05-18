@@ -1,0 +1,99 @@
+"""
+Deterministic market structure analysis for XAUUSD.
+All functions are pure: same input → same output, no side effects.
+"""
+from __future__ import annotations
+from typing import TypedDict
+
+
+# ── Types ─────────────────────────────────────────────────────────────────────
+
+class Candle(TypedDict):
+    time: str
+    open: float
+    high: float
+    low: float
+    close: float
+
+class SwingPoint(TypedDict):
+    price: float
+    time: str
+    candle_index: int   # distance from end of array, 0 = most recent
+    label: str | None   # HH / HL / LH / LL — None for the first swing of each direction
+    swept: bool
+
+class StructureBreak(TypedDict):
+    price: float
+    time: str
+    direction: str          # bullish | bearish
+    broken_swing_time: str  # timestamp of the swing that was broken
+
+class TimeframeStructure(TypedDict):
+    state: str                      # bullish | bearish | ranging
+    swing_sequence: list[str]       # last 8 labels, chronological
+    swing_highs: list[SwingPoint]
+    swing_lows: list[SwingPoint]
+    last_bos: StructureBreak | None
+    last_choch: StructureBreak | None
+
+class LiquidityPool(TypedDict):
+    id: str
+    tf: str
+    category: str           # swing_high | swing_low | equal_highs | equal_lows
+    price: float
+    strength: int           # 1 = single swing, 2+ = equal highs/lows grouped
+    status: str             # intact | swept
+    swept_at: str | None
+    origin_time: str
+
+class Sweep(TypedDict):
+    tf: str
+    pool_id: str
+    pool_type: str          # BSL | SSL
+    pool_price: float
+    sweep_time: str
+    wick_extreme: float     # farthest point of the wick that crossed the pool
+    close_price: float
+    confirmed: bool         # True = wick crossed AND candle closed back on opposite side
+
+class FVG(TypedDict):
+    id: str
+    direction: str          # bullish | bearish
+    top: float
+    bottom: float
+    midpoint: float
+    origin_time: str        # timestamp of the middle (imbalance) candle
+    status: str             # intact | partial | filled
+    mitigation_pct: float   # 0-100
+
+class OrderBlock(TypedDict):
+    id: str
+    direction: str          # bullish | bearish
+    top: float
+    bottom: float
+    origin_time: str        # the OB candle itself
+    displacement_time: str  # the candle that caused the structural break
+    status: str             # intact | mitigated
+
+class DealingRange(TypedDict):
+    tf: str
+    high: float
+    high_time: str
+    low: float
+    low_time: str
+    equilibrium: float
+    current_price: float
+    current_zone: str       # premium | discount | equilibrium
+
+
+# ── ATR ───────────────────────────────────────────────────────────────────────
+
+def compute_atr(candles: list[Candle], period: int = 14) -> float:
+    """Simple ATR: mean of the last `period` true ranges. Returns 0.0 if too few candles."""
+    if len(candles) < period + 1:
+        return 0.0
+    trs = []
+    for i in range(1, len(candles)):
+        h, l, pc = candles[i]["high"], candles[i]["low"], candles[i - 1]["close"]
+        trs.append(max(h - l, abs(h - pc), abs(l - pc)))
+    return round(sum(trs[-period:]) / period, 2)
