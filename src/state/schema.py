@@ -18,7 +18,7 @@ def default_pending_setup() -> dict:
         "type": None,
         "context": "",
         "target_poi_id": None,
-        "target_liquidity_price": None,
+        "target_liquidity_id": None,
         "expected_direction": None,
         "since": None,
         "invalidate_above": None,

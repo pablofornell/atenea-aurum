@@ -389,7 +389,7 @@ def detect_fvgs(tf: str, candles: list[Candle]) -> list[FVG]:
 
         if c0["high"] < c2["low"]:
             fvg = {
-                "id": f"{tf}_FVG_bull_{i}",
+                "id": f"{tf}_FVG_bull_" + c1["time"].replace(".", "").replace(" ", "_").replace(":", ""),
                 "direction": "bullish",
                 "top": c2["low"],
                 "bottom": c0["high"],
@@ -400,7 +400,7 @@ def detect_fvgs(tf: str, candles: list[Candle]) -> list[FVG]:
             }
         elif c0["low"] > c2["high"]:
             fvg = {
-                "id": f"{tf}_FVG_bear_{i}",
+                "id": f"{tf}_FVG_bear_" + c1["time"].replace(".", "").replace(" ", "_").replace(":", ""),
                 "direction": "bearish",
                 "top": c0["low"],
                 "bottom": c2["high"],

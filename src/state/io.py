@@ -60,7 +60,7 @@ def save_state(state: dict, path: str) -> None:
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
 
-    backup = p.with_name("structural_state.previous.json")
+    backup = p.with_name(f"{p.stem}.previous{p.suffix}")
     if p.exists():
         shutil.copy2(p, backup)
 
