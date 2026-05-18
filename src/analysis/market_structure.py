@@ -571,3 +571,103 @@ def compute_asia_range(candles_h1: list[Candle]) -> dict[str, float | None]:
         "asia_high": max(c["high"] for c in asia),
         "asia_low":  min(c["low"]  for c in asia),
     }
+
+
+# ── Market State Builder ──────────────────────────────────────────────────────
+
+def build_market_state(
+    candles: dict[str, list[Candle]],
+    price: dict,
+    session: str,
+    symbol: str,
+    timestamp: str,
+    day_ohlc: dict,
+    week_hl: dict,
+    prev_market_state: dict | None = None,
+    swing_n: int = 2,
+    equal_tolerance: float = 0.5,
+    equil_band_pct: float = 0.05,
+) -> dict:
+    """
+    Build the complete structured_market_state from raw OHLC candles.
+    candles: {"H1": [...], "M15": [...], "M5": [...]}
+    prev_market_state: previous cycle's output for pool sweep persistence.
+    """
+    tfs = ["H1", "M15", "M5"]
+    structure: dict[str, TimeframeStructure] = {}
+    all_bsl: list[LiquidityPool] = []
+    all_ssl: list[LiquidityPool] = []
+    all_sweeps: list[Sweep] = []
+    fvgs: dict[str, list[FVG]] = {}
+    obs: dict[str, list[OrderBlock]] = {}
+    atr: dict[str, float] = {}
+
+    prev_liq = (prev_market_state or {}).get("liquidity", {})
+
+    for tf in tfs:
+        tf_candles = candles.get(tf, [])
+        if not tf_candles:
+            continue
+
+        struct = detect_market_structure(tf_candles, swing_n)
+        structure[tf] = struct
+        atr[tf] = compute_atr(tf_candles)
+
+        # Fresh pool detection, then merge with previous cycle's sweep state
+        fresh = detect_liquidity_pools(tf, struct["swing_highs"], struct["swing_lows"], equal_tolerance)
+        prev_bsl = [p for p in prev_liq.get("bsl", []) if p["tf"] == tf]
+        prev_ssl = [p for p in prev_liq.get("ssl", []) if p["tf"] == tf]
+        merged_bsl = merge_pool_state(fresh["bsl"], prev_bsl)
+        merged_ssl = merge_pool_state(fresh["ssl"], prev_ssl)
+
+        # Detect sweeps, then mark newly-swept pools
+        sweeps, swept_ids = detect_sweeps(tf, tf_candles, merged_bsl, merged_ssl)
+        for pool in merged_bsl + merged_ssl:
+            if pool["id"] in swept_ids and pool["status"] != "swept":
+                sw = next((s for s in sweeps if s["pool_id"] == pool["id"] and s["confirmed"]), None)
+                if sw:
+                    pool["status"] = "swept"
+                    pool["swept_at"] = sw["sweep_time"]
+
+        all_bsl.extend(merged_bsl)
+        all_ssl.extend(merged_ssl)
+        all_sweeps.extend(sweeps)
+        fvgs[tf] = detect_fvgs(tf, tf_candles)
+        obs[tf] = detect_order_blocks(tf, tf_candles, struct)
+
+    # Session levels from bridge data + Asia from H1 candles
+    h1_candles = candles.get("H1", [])
+    asia = compute_asia_range(h1_candles)
+
+    def _sl(price_val: float | None) -> dict:
+        return {"price": price_val, "status": "intact", "swept_at": None}
+
+    session_levels = {
+        "prev_day_high":  _sl(day_ohlc.get("prev_high")),
+        "prev_day_low":   _sl(day_ohlc.get("prev_low")),
+        "prev_week_high": _sl(week_hl.get("prev_high")),
+        "prev_week_low":  _sl(week_hl.get("prev_low")),
+        "asia_high":      _sl(asia.get("asia_high")),
+        "asia_low":       _sl(asia.get("asia_low")),
+        "today_open":     day_ohlc.get("today_open"),
+    }
+
+    h1_struct = structure.get("H1")
+    dealing_range = None
+    if h1_struct:
+        dealing_range = detect_dealing_range(
+            "H1", h1_candles,
+            h1_struct["swing_highs"], h1_struct["swing_lows"],
+            price["bid"], equil_band_pct,
+        )
+
+    return {
+        "meta": {"timestamp": timestamp, "symbol": symbol, "session": session, "price": price},
+        "atr": atr,
+        "structure": structure,
+        "liquidity": {"bsl": all_bsl, "ssl": all_ssl, "session_levels": session_levels},
+        "sweeps": all_sweeps,
+        "fvg": fvgs,
+        "order_blocks": obs,
+        "dealing_range": dealing_range,
+    }

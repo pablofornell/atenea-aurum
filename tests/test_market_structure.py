@@ -8,6 +8,7 @@ from analysis.market_structure import (
     detect_liquidity_pools, merge_pool_state, detect_sweeps,
     detect_fvgs, detect_order_blocks,
     detect_dealing_range, compute_asia_range,
+    build_market_state,
 )
 
 # ── Shared candle factory ─────────────────────────────────────────────────────
@@ -419,3 +420,35 @@ def test_compute_asia_range_no_candles():
     asia = compute_asia_range(candles)
     assert asia["asia_high"] is None
     assert asia["asia_low"] is None
+
+
+# ── build_market_state integration test ──────────────────────────────────────
+
+def test_build_market_state_structure():
+    candles = {"H1": BULLISH, "M15": BULLISH[:7], "M5": BULLISH[:5]}
+    price = {"bid": 105.0, "ask": 105.5, "spread": 0.5}
+    day_ohlc = {"prev_high": 130.0, "prev_low": 85.0, "today_open": 90.0,
+                "prev_open": 88.0, "prev_close": 128.0}
+    week_hl = {"prev_high": 140.0, "prev_low": 80.0,
+               "curr_high": 130.0, "curr_low": 88.0}
+
+    state = build_market_state(
+        candles=candles, price=price, session="London",
+        symbol="XAUUSD", timestamp="2024.01.01 08:00",
+        day_ohlc=day_ohlc, week_hl=week_hl,
+        swing_n=1,
+    )
+
+    assert state["meta"]["symbol"] == "XAUUSD"
+    assert state["meta"]["session"] == "London"
+    assert "H1" in state["structure"]
+    assert "M15" in state["structure"]
+    assert state["structure"]["H1"]["state"] == "bullish"
+    assert "H1" in state["atr"]
+    assert isinstance(state["liquidity"]["bsl"], list)
+    assert isinstance(state["liquidity"]["ssl"], list)
+    assert "prev_day_high" in state["liquidity"]["session_levels"]
+    assert isinstance(state["sweeps"], list)
+    assert "H1" in state["fvg"]
+    assert "H1" in state["order_blocks"]
+    assert state["dealing_range"]["tf"] == "H1"
