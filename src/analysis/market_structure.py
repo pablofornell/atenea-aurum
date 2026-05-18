@@ -318,3 +318,53 @@ def merge_pool_state(
         else:
             merged.append(pool)
     return merged
+
+
+# ── Sweeps ────────────────────────────────────────────────────────────────────
+
+def detect_sweeps(
+    tf: str,
+    candles: list[Candle],
+    bsl: list[LiquidityPool],
+    ssl: list[LiquidityPool],
+) -> tuple[list[Sweep], set[str]]:
+    """
+    Scan candles for sweeps of BSL and SSL pools.
+    BSL sweep: candle.high > pool.price AND candle.close < pool.price.
+    SSL sweep: candle.low  < pool.price AND candle.close > pool.price.
+    Returns (sweeps, swept_pool_ids). Only the first sweep per pool is recorded.
+    """
+    sweeps: list[Sweep] = []
+    swept_ids: set[str] = set()
+
+    for pool, pool_type, breach_key, return_check in [
+        *[(p, "BSL", "high", lambda c, pr: c["close"] < pr) for p in bsl],
+        *[(p, "SSL", "low",  lambda c, pr: c["close"] > pr) for p in ssl],
+    ]:
+        if pool["status"] == "swept":
+            swept_ids.add(pool["id"])
+            continue
+        for c in candles:
+            if c["time"] <= pool["origin_time"]:
+                continue
+            breached = (
+                c["high"] > pool["price"] if pool_type == "BSL"
+                else c["low"] < pool["price"]
+            )
+            if breached:
+                confirmed = return_check(c, pool["price"])
+                sweeps.append({
+                    "tf": tf,
+                    "pool_id": pool["id"],
+                    "pool_type": pool_type,
+                    "pool_price": pool["price"],
+                    "sweep_time": c["time"],
+                    "wick_extreme": c["high"] if pool_type == "BSL" else c["low"],
+                    "close_price": c["close"],
+                    "confirmed": confirmed,
+                })
+                if confirmed:
+                    swept_ids.add(pool["id"])
+                break  # one sweep per pool
+
+    return sweeps, swept_ids

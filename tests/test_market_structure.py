@@ -3,7 +3,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import pytest
-from analysis.market_structure import compute_atr, detect_swing_points, detect_market_structure, detect_liquidity_pools, merge_pool_state
+from analysis.market_structure import compute_atr, detect_swing_points, detect_market_structure, detect_liquidity_pools, merge_pool_state, detect_sweeps
 
 # ── Shared candle factory ─────────────────────────────────────────────────────
 
@@ -218,3 +218,40 @@ def test_merge_pool_state_drops_old():
     merged = merge_pool_state(new, prev)
     assert len(merged) == 1
     assert merged[0]["id"] == "H1_BSL_20240101_0100"
+
+
+# ── Sweep tests ───────────────────────────────────────────────────────────────
+
+# BULLISH + candle that wicks below SSL@100 and closes above → confirmed sweep
+SWEEP_SSL = BULLISH + [
+    {"time": "2024.01.01 09:00", "open": 115, "high": 118, "low": 95, "close": 112},
+    # low=95 < 100, close=112 > 100
+]
+
+def test_sweep_ssl_confirmed():
+    s = detect_market_structure(SWEEP_SSL, n=1)
+    pools = detect_liquidity_pools("H1", s["swing_highs"], s["swing_lows"])
+    sweeps, swept_ids = detect_sweeps("H1", SWEEP_SSL, pools["bsl"], pools["ssl"])
+    ssl_sweeps = [sw for sw in sweeps if sw["pool_type"] == "SSL" and sw["pool_price"] == 100]
+    assert len(ssl_sweeps) == 1
+    sw = ssl_sweeps[0]
+    assert sw["confirmed"] is True
+    assert sw["wick_extreme"] == 95
+    assert sw["close_price"] == 112
+    pool_id = next(p["id"] for p in pools["ssl"] if p["price"] == 100)
+    assert pool_id in swept_ids
+
+def test_sweep_not_confirmed_when_close_stays_below():
+    # Wick goes below SSL@100 but close stays below 100 → not confirmed
+    candles = BULLISH + [
+        {"time": "2024.01.01 09:00", "open": 115, "high": 118, "low": 95, "close": 98},
+        # close=98 < 100
+    ]
+    s = detect_market_structure(candles, n=1)
+    pools = detect_liquidity_pools("H1", s["swing_highs"], s["swing_lows"])
+    sweeps, swept_ids = detect_sweeps("H1", candles, pools["bsl"], pools["ssl"])
+    ssl_sweeps = [sw for sw in sweeps if sw["pool_type"] == "SSL" and sw["pool_price"] == 100]
+    assert len(ssl_sweeps) == 1
+    assert ssl_sweeps[0]["confirmed"] is False
+    pool_id = next(p["id"] for p in pools["ssl"] if p["price"] == 100)
+    assert pool_id not in swept_ids
