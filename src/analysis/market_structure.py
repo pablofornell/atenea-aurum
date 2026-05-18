@@ -241,3 +241,80 @@ def detect_market_structure(candles: list[Candle], n: int = 2) -> TimeframeStruc
         "last_bos": last_bos,
         "last_choch": last_choch,
     }
+
+
+# ── Liquidity Pools ───────────────────────────────────────────────────────────
+
+def _pool_id(tf: str, pool_type: str, origin_time: str) -> str:
+    sanitized = origin_time.replace(".", "").replace(" ", "_").replace(":", "")
+    return f"{tf}_{pool_type}_{sanitized}"
+
+
+def _build_pools(
+    tf: str,
+    points: list[SwingPoint],
+    pool_type: str,
+    single_cat: str,
+    group_cat: str,
+    tolerance: float,
+) -> list[LiquidityPool]:
+    if not points:
+        return []
+    groups: list[list[SwingPoint]] = []
+    for sp in points:
+        placed = False
+        for g in groups:
+            if abs(sp["price"] - g[0]["price"]) <= tolerance:
+                g.append(sp)
+                placed = True
+                break
+        if not placed:
+            groups.append([sp])
+
+    pools: list[LiquidityPool] = []
+    for g in groups:
+        avg = round(sum(s["price"] for s in g) / len(g), 2)
+        pools.append({
+            "id": _pool_id(tf, pool_type, g[0]["time"]),
+            "tf": tf,
+            "category": group_cat if len(g) > 1 else single_cat,
+            "price": avg,
+            "strength": len(g),
+            "status": "intact",
+            "swept_at": None,
+            "origin_time": g[0]["time"],
+        })
+    return pools
+
+
+def detect_liquidity_pools(
+    tf: str,
+    swing_highs: list[SwingPoint],
+    swing_lows: list[SwingPoint],
+    equal_tolerance: float = 0.5,
+) -> dict[str, list[LiquidityPool]]:
+    """Build BSL (from swing highs) and SSL (from swing lows) pools."""
+    bsl = _build_pools(tf, swing_highs, "BSL", "swing_high", "equal_highs", equal_tolerance)
+    ssl = _build_pools(tf, swing_lows,  "SSL", "swing_low",  "equal_lows",  equal_tolerance)
+    return {"bsl": bsl, "ssl": ssl}
+
+
+def merge_pool_state(
+    new_pools: list[LiquidityPool],
+    prev_pools: list[LiquidityPool],
+) -> list[LiquidityPool]:
+    """
+    Persist swept status from the previous cycle.
+    - New pool with same ID as a swept prev pool → stays swept.
+    - New pool not in prev → add as intact.
+    - Prev pool whose ID is absent from new → dropped (fell outside candle window).
+    """
+    prev_by_id = {p["id"]: p for p in prev_pools}
+    merged = []
+    for pool in new_pools:
+        prev = prev_by_id.get(pool["id"])
+        if prev and prev["status"] == "swept":
+            merged.append({**pool, "status": "swept", "swept_at": prev["swept_at"]})
+        else:
+            merged.append(pool)
+    return merged

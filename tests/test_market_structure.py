@@ -3,7 +3,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import pytest
-from analysis.market_structure import compute_atr, detect_swing_points, detect_market_structure
+from analysis.market_structure import compute_atr, detect_swing_points, detect_market_structure, detect_liquidity_pools, merge_pool_state
 
 # ── Shared candle factory ─────────────────────────────────────────────────────
 
@@ -161,3 +161,60 @@ def test_market_structure_bos_bullish():
     assert s["last_bos"]["direction"] == "bullish"
     assert s["last_bos"]["price"] == 125     # the broken swing high
     assert s["last_choch"] is None
+
+
+# ── Liquidity pool tests ───────────────────────────────────────────────────────
+
+def test_liquidity_pools_from_bullish():
+    s = detect_market_structure(BULLISH, n=1)
+    pools = detect_liquidity_pools("H1", s["swing_highs"], s["swing_lows"])
+    bsl = pools["bsl"]
+    ssl = pools["ssl"]
+    assert len(bsl) == 2   # SH at 115 and SH at 125
+    assert len(ssl) == 2   # SL at 90 and SL at 100
+    assert bsl[0]["price"] == 115
+    assert bsl[1]["price"] == 125
+    assert ssl[0]["price"] == 90
+    assert ssl[1]["price"] == 100
+    assert all(p["status"] == "intact" for p in bsl + ssl)
+    assert all(p["tf"] == "H1" for p in bsl + ssl)
+
+def test_liquidity_pools_equal_highs():
+    # Two swing highs within 0.5 tolerance → grouped as equal_highs
+    highs = [
+        {"price": 115.0, "time": "2024.01.01 01:00", "candle_index": 5, "label": None, "swept": False},
+        {"price": 115.3, "time": "2024.01.01 03:00", "candle_index": 3, "label": "HH", "swept": False},
+    ]
+    lows = []
+    pools = detect_liquidity_pools("H1", highs, lows, equal_tolerance=0.5)
+    bsl = pools["bsl"]
+    assert len(bsl) == 1
+    assert bsl[0]["category"] == "equal_highs"
+    assert bsl[0]["strength"] == 2
+
+def test_merge_pool_state_preserves_swept():
+    prev = [
+        {"id": "H1_BSL_20240101_0100", "status": "swept", "swept_at": "2024.01.01 06:00",
+         "tf": "H1", "category": "swing_high", "price": 115.0, "strength": 1,
+         "origin_time": "2024.01.01 01:00"},
+    ]
+    new = [
+        {"id": "H1_BSL_20240101_0100", "status": "intact", "swept_at": None,
+         "tf": "H1", "category": "swing_high", "price": 115.0, "strength": 1,
+         "origin_time": "2024.01.01 01:00"},
+    ]
+    merged = merge_pool_state(new, prev)
+    assert merged[0]["status"] == "swept"
+    assert merged[0]["swept_at"] == "2024.01.01 06:00"
+
+def test_merge_pool_state_drops_old():
+    # Pool ID in prev but not in new → dropped
+    prev = [{"id": "H1_BSL_old", "status": "intact", "swept_at": None,
+             "tf": "H1", "category": "swing_high", "price": 200.0, "strength": 1,
+             "origin_time": "2023.01.01 00:00"}]
+    new = [{"id": "H1_BSL_20240101_0100", "status": "intact", "swept_at": None,
+            "tf": "H1", "category": "swing_high", "price": 115.0, "strength": 1,
+            "origin_time": "2024.01.01 01:00"}]
+    merged = merge_pool_state(new, prev)
+    assert len(merged) == 1
+    assert merged[0]["id"] == "H1_BSL_20240101_0100"
