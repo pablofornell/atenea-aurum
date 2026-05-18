@@ -28,11 +28,16 @@ def load_state(path: str) -> dict:
         old_bm = data.get("bot_managed", {})
         if isinstance(old_bm, dict):
             # v2→v3: rename h4_bias→h1_bias, h1_bias→m15_bias
+            original_h1_bias = old_bm.get("h1_bias")
+            original_h1_bias_justification = old_bm.get("h1_bias_justification", "")
             if "h4_bias" in old_bm:
                 old_bm["h1_bias"] = old_bm.pop("h4_bias")
                 old_bm["h1_bias_since"] = old_bm.pop("h4_bias_since", None)
                 old_bm["h1_bias_justification"] = old_bm.pop("h4_bias_justification", "")
-            if "h1_bias" in old_bm and "m15_bias" not in old_bm:
+            if original_h1_bias is not None and "m15_bias" not in old_bm:
+                old_bm["m15_bias"] = original_h1_bias
+                old_bm["m15_bias_justification"] = original_h1_bias_justification
+            elif "m15_bias" not in old_bm and "h1_bias" in old_bm:
                 old_bm["m15_bias"] = old_bm.pop("h1_bias", "unclear")
                 old_bm["m15_bias_justification"] = old_bm.pop("h1_bias_justification", "")
             from state.schema import validate_bot_managed
