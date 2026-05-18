@@ -25,8 +25,16 @@ def load_state(path: str) -> dict:
     # Migrate schema if needed — preserve bot memory across version bumps
     if data.get("schema_version") != SCHEMA_VERSION:
         new_state = default_state()
-        old_bm = data.get("bot_managed")
+        old_bm = data.get("bot_managed", {})
         if isinstance(old_bm, dict):
+            # v2→v3: rename h4_bias→h1_bias, h1_bias→m15_bias
+            if "h4_bias" in old_bm:
+                old_bm["h1_bias"] = old_bm.pop("h4_bias")
+                old_bm["h1_bias_since"] = old_bm.pop("h4_bias_since", None)
+                old_bm["h1_bias_justification"] = old_bm.pop("h4_bias_justification", "")
+            if "h1_bias" in old_bm and "m15_bias" not in old_bm:
+                old_bm["m15_bias"] = old_bm.pop("h1_bias", "unclear")
+                old_bm["m15_bias_justification"] = old_bm.pop("h1_bias_justification", "")
             from state.schema import validate_bot_managed
             ok, _ = validate_bot_managed(old_bm)
             if ok:
