@@ -452,3 +452,69 @@ def test_build_market_state_structure():
     assert "H1" in state["fvg"]
     assert "H1" in state["order_blocks"]
     assert state["dealing_range"]["tf"] == "H1"
+
+
+# ── validate_order tests ──────────────────────────────────────────────────────
+
+from risk.validator import validate_order
+
+_INTACT_BSL = {"id": "H1_BSL_x", "tf": "H1", "category": "swing_high",
+               "price": 130.0, "strength": 1, "status": "intact",
+               "swept_at": None, "origin_time": "2024.01.01 00:00"}
+_SWEPT_SSL  = {"id": "H1_SSL_x", "pool_type": "SSL", "pool_price": 100.0,
+               "sweep_time": "2024.01.01 05:00", "wick_extreme": 97.0,
+               "close_price": 103.0, "confirmed": True, "tf": "H1"}
+
+def _make_state(h1_state="bullish", last_choch=None):
+    return {
+        "structure": {"H1": {"state": h1_state, "last_choch": last_choch}},
+        "sweeps": [_SWEPT_SSL],
+        "liquidity": {"bsl": [_INTACT_BSL], "ssl": []},
+    }
+
+def test_validate_buy_passes():
+    decision = {
+        "decision": "BUY", "sl": 95.0, "tp": 130.0,
+        "bot_managed_state": {"h1_bias": "bullish"},
+    }
+    result = validate_order(decision, _make_state(), positions=[], ask=103.5, bid=103.0)
+    # R:R = (130 - 103.5) / (103.5 - 95) = 26.5 / 8.5 ≈ 3.12
+    assert result["passed"] is True
+    assert result["checks"]["rr"]["value"] > 1.3
+    assert result["rejection_reason"] is None
+
+def test_validate_fails_rr():
+    decision = {
+        "decision": "BUY", "sl": 102.0, "tp": 104.0,  # tiny TP
+        "bot_managed_state": {"h1_bias": "bullish"},
+    }
+    result = validate_order(decision, _make_state(), positions=[], ask=103.5, bid=103.0)
+    assert result["passed"] is False
+    assert result["checks"]["rr"]["ok"] is False
+    assert "R:R" in result["rejection_reason"]
+
+def test_validate_fails_max_positions():
+    decision = {
+        "decision": "BUY", "sl": 95.0, "tp": 130.0,
+        "bot_managed_state": {"h1_bias": "bullish"},
+    }
+    positions = [{"ticket": 1, "type": "BUY", "lots": 0.01, "open": 100.0,
+                  "sl": 95.0, "tp": 130.0, "profit": 5.0, "symbol": "XAUUSD"}]
+    result = validate_order(decision, _make_state(), positions=positions, ask=103.5, bid=103.0)
+    assert result["passed"] is False
+    assert result["checks"]["max_positions"]["ok"] is False
+
+def test_validate_fails_direction_vs_bias():
+    decision = {
+        "decision": "BUY", "sl": 95.0, "tp": 130.0,
+        "bot_managed_state": {"h1_bias": "bearish"},  # bias says bearish, want to BUY
+    }
+    result = validate_order(decision, _make_state(h1_state="bearish"), positions=[], ask=103.5, bid=103.0)
+    assert result["passed"] is False
+    assert result["checks"]["direction_vs_bias"]["ok"] is False
+
+def test_validate_wait_skips_checks():
+    decision = {"decision": "WAIT", "sl": 0.0, "tp": 0.0, "bot_managed_state": {}}
+    result = validate_order(decision, _make_state(), positions=[], ask=103.5, bid=103.0)
+    assert result["passed"] is True
+    assert result["checks"] == {}
