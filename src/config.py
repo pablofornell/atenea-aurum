@@ -48,8 +48,7 @@ MAX_TOKENS     = 1000
 STATE_DIR      = "./state"
 STATE_FILE     = f"./state/structural_state_{MODE}.json"
 
-# Data per cycle
-CANDLES_H4     = 20
-CANDLES_H1     = 48
-CANDLES_M15    = 32
-CANDLES_M5     = 24
+# Data per cycle — H1 is the highest timeframe (H4 removed)
+CANDLES_H1     = 100
+CANDLES_M15    = 64
+CANDLES_M5     = 48
