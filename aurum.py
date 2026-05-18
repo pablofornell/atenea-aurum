@@ -11,6 +11,7 @@ from bridge.mt4_client import MT4Client, MT4ConnectionError
 from data.processor import build_context, serialize_for_prompt
 from logger import AurumLogger
 from risk.executor import execute
+from risk.validator import validate_order
 from scheduler import Scheduler
 from state.io import load_state, save_state
 from state.schema import default_bot_managed, validate_bot_managed
@@ -95,6 +96,7 @@ def main():
             state, context, last_decision[0], config
         )
         logger.log_state_changes(changes)
+        market_state = state["code_managed"].get("market_state") or {}
 
         # Breakeven guard — move SL to entry when ≥50% TP progress
         for pos in context["positions"]:
@@ -115,8 +117,9 @@ def main():
         tui.set_state("Querying agent...", f"Cycle {n}  ·  Step 3/4")
         market_text   = serialize_for_prompt(
             context,
+            market_state=market_state,
             last_result=last_result[0],
-            structural_state=state,
+            bot_managed=state.get("bot_managed"),
         )
         system_prompt = open(f"{config.STRATEGY_DIR}/system_prompt.md", encoding="utf-8").read()
         decision      = call_agent(market_text, system_prompt, config.STRATEGY_DIR)
@@ -136,13 +139,35 @@ def main():
 
         save_state(state, config.STATE_FILE)
 
+        # Hard validation — reject orders that violate structural constraints
+        validation = validate_order(
+            decision,
+            market_state,
+            context["positions"],
+            ask=context["price"]["ask"],
+            bid=context["price"]["bid"],
+        )
+
         # Phase 4 — execution
         tui.set_state("Executing...", f"Cycle {n}  ·  Step 4/4")
-        result = execute(decision, context, mt4, config)
+        if not validation["passed"]:
+            result = f"WAIT: validator rejected — {validation['rejection_reason']}"
+            logger.warn(f"Order rejected by validator: {validation['rejection_reason']}")
+        else:
+            result = execute(decision, context, mt4, config)
         last_result[0] = result
         last_decision[0] = decision
 
+        import json as _json
         logger.log_cycle(context, decision, result)
+        logger.info(
+            "CYCLE_LOG: " + _json.dumps({
+                "cycle_time": context["timestamp"],
+                "final_decision": decision.get("decision"),
+                "validation": validation,
+                "rejection_reason": validation.get("rejection_reason"),
+            })
+        )
 
         # Phase 5 — adaptive interval
         # Refresh positions from MT4 if a new order was just placed so the
