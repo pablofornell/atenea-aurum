@@ -130,7 +130,7 @@ Each cycle (~15 min, synchronized to M15 candle close):
 
 1. **Data collection** — `data/processor.py` queries MT4 for candles (H4×20, H1×48, M15×32, M5×24), current price, account info, open positions, ATR, and weekly/daily OHLC levels.
 2. **Agent decision** — `agent/caller.py` invokes `claude -p <prompt>` and parses the JSON response.
-3. **Risk validation** — `risk/executor.py` validates the decision (confidence ≥ 0.60, valid SL, drawdown guard, max trades) and sizes the position using fixed-fractional risk (default 4% of balance).
+3. **Risk validation** — `risk/executor.py` validates the decision (confidence ≥ 0.60, valid SL, drawdown guard, max trades) and sizes the position progressively (0.01 lot per $100 of balance by default, configurable via `BALANCE_LOT_STEP`).
 4. **Execution** — sends BUY/SELL/CLOSE/MODIFY commands to MT4 via the TCP bridge.
 
 The bot sleeps Fri 21:00 UTC → Sun 22:00 UTC (forex market closed).
