@@ -11,6 +11,7 @@ _DD_GUARD = 0.95   # equity / balance threshold
 
 
 def _progressive_lots(balance: float, step: int) -> float:
+    """Return lots for balance: every `step` dollars = 0.01 lot (floor)."""
     return math.floor(balance / step) * 0.01
 
 
@@ -193,7 +194,7 @@ def execute(decision: dict, context: dict, mt4: MT4Client, cfg) -> str:
     if using_fixed_lots:
         lots = cfg.FIXED_LOTS
     else:
-        step = getattr(cfg, "BALANCE_LOT_STEP", 100)
+        step = getattr(cfg, "BALANCE_LOT_STEP", 100) or 100
         lots = _progressive_lots(balance, step)
 
     ticket, final_lots, error = _attempt_order(

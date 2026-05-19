@@ -44,7 +44,7 @@ MT4_HOST     = "127.0.0.1"
 MT4_PORT     = 5555        # must match AURUM_Bridge.mq4
 MAGIC_NUMBER = 20240101    # identifies bot orders in MT4
 
-MAX_RISK_PCT    = 4        # % of balance risked per trade
+BALANCE_LOT_STEP = 100     # dollars per 0.01 lot (progressive sizing)
 MAX_OPEN_TRADES = 1        # max simultaneous positions
 ```
 
