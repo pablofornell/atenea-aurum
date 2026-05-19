@@ -330,42 +330,55 @@ def detect_sweeps(
 ) -> tuple[list[Sweep], set[str]]:
     """
     Scan candles for sweeps of BSL and SSL pools.
-    BSL sweep: candle.high > pool.price AND candle.close < pool.price.
-    SSL sweep: candle.low  < pool.price AND candle.close > pool.price.
+    BSL sweep: candle.high > pool.price AND any close < pool.price on breach or later candle.
+    SSL sweep: candle.low  < pool.price AND any close > pool.price on breach or later candle.
     Returns (sweeps, swept_pool_ids). Only the first sweep per pool is recorded.
     """
     sweeps: list[Sweep] = []
     swept_ids: set[str] = set()
 
-    for pool, pool_type, breach_key, return_check in [
-        *[(p, "BSL", "high", lambda c, pr: c["close"] < pr) for p in bsl],
-        *[(p, "SSL", "low",  lambda c, pr: c["close"] > pr) for p in ssl],
+    for pool, pool_type, return_check in [
+        *[(p, "BSL", lambda c, pr: c["close"] < pr) for p in bsl],
+        *[(p, "SSL", lambda c, pr: c["close"] > pr) for p in ssl],
     ]:
         if pool["status"] == "swept":
             swept_ids.add(pool["id"])
             continue
+
+        breach_candle: Candle | None = None
+        confirmed = False
+
         for c in candles:
             if c["time"] <= pool["origin_time"]:
                 continue
-            breached = (
-                c["high"] > pool["price"] if pool_type == "BSL"
-                else c["low"] < pool["price"]
-            )
-            if breached:
-                confirmed = return_check(c, pool["price"])
-                sweeps.append({
-                    "tf": tf,
-                    "pool_id": pool["id"],
-                    "pool_type": pool_type,
-                    "pool_price": pool["price"],
-                    "sweep_time": c["time"],
-                    "wick_extreme": c["high"] if pool_type == "BSL" else c["low"],
-                    "close_price": c["close"],
-                    "confirmed": confirmed,
-                })
-                if confirmed:
-                    swept_ids.add(pool["id"])
-                break  # one sweep per pool
+            if breach_candle is None:
+                breached = (
+                    c["high"] > pool["price"] if pool_type == "BSL"
+                    else c["low"] < pool["price"]
+                )
+                if breached:
+                    breach_candle = c
+                    confirmed = return_check(c, pool["price"])
+                    if confirmed:
+                        break
+            else:
+                if return_check(c, pool["price"]):
+                    confirmed = True
+                    break
+
+        if breach_candle is not None:
+            sweeps.append({
+                "tf": tf,
+                "pool_id": pool["id"],
+                "pool_type": pool_type,
+                "pool_price": pool["price"],
+                "sweep_time": breach_candle["time"],
+                "wick_extreme": breach_candle["high"] if pool_type == "BSL" else breach_candle["low"],
+                "close_price": breach_candle["close"],
+                "confirmed": confirmed,
+            })
+            if confirmed:
+                swept_ids.add(pool["id"])
 
     return sweeps, swept_ids
 

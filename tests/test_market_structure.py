@@ -262,6 +262,25 @@ def test_sweep_not_confirmed_when_close_stays_below():
     pool_id = next(p["id"] for p in pools["ssl"] if p["price"] == 100)
     assert pool_id not in swept_ids
 
+def test_sweep_confirmed_on_subsequent_candle():
+    # Wick candle closes below SSL@100, but the NEXT candle closes above → confirmed
+    candles = BULLISH + [
+        {"time": "2024.01.01 09:00", "open": 115, "high": 118, "low": 95, "close": 98},  # wick below 100, close=98 still below
+        {"time": "2024.01.01 10:00", "open": 98,  "high": 115, "low": 97, "close": 110}, # close=110 > 100 → confirms
+    ]
+    s = detect_market_structure(candles, n=1)
+    pools = detect_liquidity_pools("H1", s["swing_highs"], s["swing_lows"])
+    sweeps, swept_ids = detect_sweeps("H1", candles, pools["bsl"], pools["ssl"])
+    ssl_sweeps = [sw for sw in sweeps if sw["pool_type"] == "SSL" and sw["pool_price"] == 100]
+    assert len(ssl_sweeps) == 1
+    sw = ssl_sweeps[0]
+    assert sw["confirmed"] is True
+    assert sw["sweep_time"] == "2024.01.01 09:00"   # breach candle
+    assert sw["wick_extreme"] == 95                  # wick of breach candle
+    assert sw["close_price"] == 98                   # close of breach candle (still below pool)
+    pool_id = next(p["id"] for p in pools["ssl"] if p["price"] == 100)
+    assert pool_id in swept_ids
+
 
 # ── FVG tests ─────────────────────────────────────────────────────────────────
 
