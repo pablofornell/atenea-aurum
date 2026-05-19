@@ -1,25 +1,26 @@
 import json
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 import config
 from bridge.mt4_client import MT4Client
 
+_ET = ZoneInfo("America/New_York")
 
-def _current_session(utc_hour: int) -> str:
-    if 22 <= utc_hour or utc_hour < 7:
-        return "Asia"
-    if 7 <= utc_hour < 12:
+
+def _current_session(et_hour: int) -> str:
+    if 2 <= et_hour < 7:
         return "London"
-    if 12 <= utc_hour < 17:
+    if 7 <= et_hour < 13:
         return "NY"
-    if 17 <= utc_hour < 22:
+    if 13 <= et_hour < 18:
         return "Off"
-    return "Off"
+    return "Asia"
 
 
 def build_context(mt4: MT4Client) -> dict:
     now = datetime.now(timezone.utc)
-    session = _current_session(now.hour)
+    session = _current_session(now.astimezone(_ET).hour)
 
     price    = mt4.get_price(config.SYMBOL)
     account  = mt4.get_account()

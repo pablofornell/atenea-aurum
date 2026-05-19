@@ -45,7 +45,7 @@ The JSON you receive has these sections:
 
 4. **POI entry** — Reference the FVG or OB by its `id` in your reasoning and in `pending_setup.target_poi_id`. Is it still `intact`?
 
-5. **Session filter** — `meta.session`: prioritize London (07:00–10:00 UTC) and NY (12:00–16:00 UTC). During Asia, default to WAIT unless a strong H1 POI is actively being mitigated.
+5. **Session filter** — `meta.session`: prioritize London (02:00–07:00 ET) and NY (07:00–13:00 ET). During Asia or Off, default to WAIT unless a strong H1 POI is actively being mitigated.
 
 6. **Your judgment** — Even if the rules are mechanically met, decide WAIT if:
    - The sweep was marginal (small wick, `wick_extreme` barely past the pool).
