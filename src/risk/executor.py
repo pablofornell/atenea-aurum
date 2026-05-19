@@ -142,6 +142,8 @@ def execute(decision: dict, context: dict, mt4: MT4Client, cfg) -> str:
     # Drawdown guard
     balance = acc["balance"]
     equity  = acc["equity"]
+    if balance <= 0:
+        return f"WAIT: non-positive balance ({balance:.2f}) — cannot size position"
     if balance > 0 and equity < balance * _DD_GUARD:
         return f"WAIT: drawdown guard equity={equity:.2f} balance={balance:.2f}"
 
