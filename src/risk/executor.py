@@ -1,3 +1,4 @@
+import math
 import time
 
 from bridge.mt4_client import MT4Client, MT4Error
@@ -7,6 +8,10 @@ _PIP_SIZE = 0.10   # 1 pip = $0.10 per 0.01 lot
 _LOTS_MIN = 0.01
 _LOTS_MAX = 5.00
 _DD_GUARD = 0.95   # equity / balance threshold
+
+
+def _progressive_lots(balance: float, step: int) -> float:
+    return math.floor(balance / step) * 0.01
 
 
 def _parse_mt4_error(exc_msg: str) -> tuple[int, str]:
@@ -188,8 +193,8 @@ def execute(decision: dict, context: dict, mt4: MT4Client, cfg) -> str:
     if using_fixed_lots:
         lots = cfg.FIXED_LOTS
     else:
-        risk_amount = balance * (cfg.MAX_RISK_PCT / 100.0)
-        lots = risk_amount / (sl_pips * _PIP_SIZE * 100)
+        step = getattr(cfg, "BALANCE_LOT_STEP", 100)
+        lots = _progressive_lots(balance, step)
 
     ticket, final_lots, error = _attempt_order(
         action, mt4, symbol, lots, sl, tp, min_lot, max_lot, lot_step,
