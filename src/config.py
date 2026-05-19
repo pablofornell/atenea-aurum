@@ -30,11 +30,12 @@ INTERVAL_NO_POSITION   = 300   # 5 min — killzone active, no open trade
 INTERVAL_WITH_POSITION = 300   # 5 min  — position open
 INTERVAL_NEAR_TARGET   = 120   # 2 min  — position at ≥80% TP progress or near SL
 
-# Killzones — UTC [start, end) hour pairs when the bot is allowed to open trades.
+# Killzones — Eastern Time (ET) [start, end) hour pairs when the bot is allowed to open trades.
+# Anchored to ET (America/New_York) so DST transitions are handled automatically.
 # Set to [] to disable filtering and trade 24/5.
-KILLZONES = [
-    (7, 10),   # London open
-    (12, 15),  # NY open / London-NY overlap
+KILLZONES_ET = [
+    (2, 5),    # London open  (02:00–05:00 ET)
+    (7, 10),   # NY open      (07:00–10:00 ET)
 ]
 KILLZONE_FRI_CUTOFF = 19  # no new trades on Friday at or after this UTC hour
 KILLZONE_MON_START  = 2   # no new trades on Monday before this UTC hour

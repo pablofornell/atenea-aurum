@@ -1,5 +1,8 @@
 import time
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
+
+_ET = ZoneInfo("America/New_York")
 
 
 class Scheduler:
@@ -19,23 +22,24 @@ class Scheduler:
         return False
 
     def is_in_killzone(self, cfg) -> bool:
-        killzones = getattr(cfg, "KILLZONES", None)
-        if not killzones:
+        killzones_et = getattr(cfg, "KILLZONES_ET", None)
+        if not killzones_et:
             return True
 
-        now = datetime.now(timezone.utc)
-        wd  = now.weekday()
-        h   = now.hour
+        now_utc = datetime.now(timezone.utc)
+        wd      = now_utc.weekday()
+        h_utc   = now_utc.hour
+        h_et    = now_utc.astimezone(_ET).hour
 
         fri_cutoff = getattr(cfg, "KILLZONE_FRI_CUTOFF", 19)
         mon_start  = getattr(cfg, "KILLZONE_MON_START",  2)
 
-        if wd == 4 and h >= fri_cutoff:
+        if wd == 4 and h_utc >= fri_cutoff:
             return False
-        if wd == 0 and h < mon_start:
+        if wd == 0 and h_utc < mon_start:
             return False
 
-        return any(start <= h < end for start, end in killzones)
+        return any(start <= h_et < end for start, end in killzones_et)
 
     def _seconds_until_open(self) -> float:
         """Seconds until next market open (Sunday 22:00 UTC)."""
@@ -50,22 +54,23 @@ class Scheduler:
 
     def _seconds_until_killzone(self, cfg) -> float:
         """Seconds until the next killzone window opens."""
-        killzones  = cfg.KILLZONES
-        fri_cutoff = getattr(cfg, "KILLZONE_FRI_CUTOFF", 19)
-        mon_start  = getattr(cfg, "KILLZONE_MON_START",  2)
-        now        = datetime.now(timezone.utc)
+        killzones_et = cfg.KILLZONES_ET
+        fri_cutoff   = getattr(cfg, "KILLZONE_FRI_CUTOFF", 19)
+        mon_start    = getattr(cfg, "KILLZONE_MON_START",  2)
+        now          = datetime.now(timezone.utc)
 
         for delta_m in range(1, 7 * 24 * 60 + 1):
-            t  = now + timedelta(minutes=delta_m)
-            wd = t.weekday()
-            h  = t.hour
-            if wd == 5 or (wd == 6 and h < 22):      # weekend
+            t     = now + timedelta(minutes=delta_m)
+            wd    = t.weekday()
+            h_utc = t.hour
+            h_et  = t.astimezone(_ET).hour
+            if wd == 5 or (wd == 6 and h_utc < 22):  # weekend
                 continue
-            if wd == 4 and h >= fri_cutoff:
+            if wd == 4 and h_utc >= fri_cutoff:
                 continue
-            if wd == 0 and h < mon_start:
+            if wd == 0 and h_utc < mon_start:
                 continue
-            if any(start <= h < end for start, end in killzones):
+            if any(start <= h_et < end for start, end in killzones_et):
                 return (t - now).total_seconds()
 
         return 3600.0
